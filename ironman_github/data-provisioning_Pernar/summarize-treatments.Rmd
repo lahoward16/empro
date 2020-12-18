@@ -1,0 +1,75 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(reactable)
+```
+
+```{r load, include=FALSE, cache=TRUE}
+date_of_data_refresh <- "20201027"
+
+source(here::here("utils", "load_sas_medidata.R"))
+medidata <- load_sas_medidata(
+  here::here("data", date_of_data_refresh, "c16_170_IRONMAN_586_20201027_173647")
+)
+```
+
+## Treatments
+
+The `treatment` table has `r nrow(medidata$treatment)` entries across `r n_distinct(medidata$treatment$subjectId)` patients. Approximate treatment sequences are provided below in comma separated format; be aware that these may not be strict sequential events due to concurrent therapies being reported in the same format.
+
+```{r echo=FALSE, message=FALSE}
+# loosely report sequence of treatments (concurrent treatments not handled separately)
+treatments <- medidata$treatment %>% 
+  select(subjectId, TREATMENT, EXSTDAT) %>%
+  group_by(subjectId) %>% 
+  arrange(EXSTDAT) %>% 
+  count(TREATMENT) %>%
+  summarise(treatment_sequence = paste(TREATMENT, collapse = ", "))
+
+treatments %>% 
+  count(treatment_sequence, sort = TRUE) %>%
+  rename("Treatment sequence" = treatment_sequence) %>%
+  reactable(sortable = TRUE, filterable = TRUE)
+```
+
+## Surgery
+
+The `surg` table has `r nrow(medidata$surg)` entries across `r n_distinct(medidata$surg$subjectId)` patients.
+
+```{r echo=FALSE, message=FALSE}
+surgeries <- medidata$surg %>%
+  select(subjectId, SURGTYPE, SURGDT) %>%
+  group_by(subjectId) %>%
+  arrange(SURGDT) %>%
+  count(SURGTYPE) %>%
+  summarize(surgery = paste(SURGTYPE, collapse = ", "))
+
+surgeries %>%
+  count(surgery, sort = TRUE) %>%
+  rename("Surgery sequence" = surgery) %>%
+  reactable(sortable = TRUE, filterable = TRUE)
+```
+
+## Radiation
+
+The `palliativeradiation` table has `r nrow(medidata$palliativeradiation)` entries across `r n_distinct(medidata$palliativeradiation$subjectId)` patients.
+
+```{r echo=FALSE, message=FALSE}
+radiation <- medidata$palliativeradiation %>%
+  select(subjectId, RADREG, RADREGDT) %>%
+  group_by(subjectId) %>%
+  arrange(RADREGDT) %>%
+  count(RADREG) %>%
+  summarize(radiation_sequence = paste(RADREG, collapse = ", "))
+
+radiation %>%
+  count(radiation_sequence, sort = TRUE) %>%
+  rename("Radiation sequence" = radiation_sequence) %>%
+  reactable(sortable = TRUE, filterable = TRUE)
+```
