@@ -15,4 +15,4 @@ number_of_patients <- sum(sasdfs$cohort %>%
 
 ### Why are there differences between cohort$Site and EMPRO sub-study site list and strat..xlsx
 
-
+## test
