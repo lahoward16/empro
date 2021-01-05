@@ -90,15 +90,12 @@ sites2 <- sites %>%
                           `Site Name`=="QUT - Redland Hospital" ~ "Queensland University of Technology Sites",
                           `Site Name`=="Delnor Cancer Center" ~ "Northwestern Medicine Regional Cancer Centers",
                           `Site Name`=="Kishwaukee Cancer Center" ~ "Northwestern Medicine Regional Cancer Centers",
-                          `Site Name`=="Warrenville Cancer Center" ~ "Northwestern Medicine Regional Cancer Centers"  ))%>%
+                          `Site Name`=="Warrenville Cancer Center" ~ "Northwestern Medicine Regional Cancer Centers",
+                          `Site Name`=="Doylestown Hospital (TJU affiliate)" ~ "Thomas Jefferson University",
+                          `Site Name`=="Reading Health System (TJU sub-site)" ~ "Thomas Jefferson University",
+                          `Site Name`=="Aria Health (TJU affiliate)" ~ "Thomas Jefferson University",
+                          `Site Name`=="Easton Hospital (TJU affiliate)" ~ "Thomas Jefferson University"))%>%
   mutate(sitegp=ifelse(is.na(sitegp),`Site Name`,sitegp))
-
-    # ### Should these all be grouped as one site?
-    # Thomas Jefferson University
-    # Aria Health (TJU affiliate)
-    # Doylestown Hospital (TJU affiliate)
-    # Easton Hospital (TJU affiliate)
-    # Reading Health System (TJU sub-site)
 
 
 # merge site info from Excel spreadsheet into data
