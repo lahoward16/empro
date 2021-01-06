@@ -8,10 +8,12 @@
 ##############################
 
 # load package
+library(tidyverse)
 library(cvcrand)
 
 # Directory where data are stored
-dir<-'H:\\GU\\IRONMAN\\Data\\2020-12-14\\'
+#dir<-'H:\\GU\\IRONMAN\\Data\\2020-12-14\\'
+dir <- 'C:\\Users\\nn31\\u_data\\ironman_empro\\'
 
 # load data
 load(file=paste0(dir,"IRONMAN_data_for_rand.RData"))
@@ -19,7 +21,11 @@ load(file=paste0(dir,"IRONMAN_data_for_rand.RData"))
 # complete cases of data
 database_complete <- database_elig %>%
   filter_at(vars(c(sitegp, Country, timetodx, COHORT)), all_vars(!is.na(.)))
-# n=1095
+# n=1082
+
+#
+sapply(database_complete, function(x) sum(is.na(x)))
+
 
 # number of site groups
 length(unique(database_complete$sitegp))
@@ -47,12 +53,21 @@ database_test <- database_site4 %>%
 ####################################
 
 # try constrained randomization
+### There is some non-working code in cvrall that inadvertantly creates a character list
+### This occurs on line 100 and is:  x <- as.matrix(x)
+### This line should be changed to: x2 <- as.matrix(sapply(x, as.numeric))
+### Because this code is not on github, I cannot make a pull request, therefore, the recommended path is to one hot
+### encode the dataframe yourself, for example
+
+inputdf <- data.frame(model.matrix(~Country+timetodx+CRPC, database_site4))
+
 Design_result <- cvrall(clustername = database_site4$sitegp,
                         balancemetric = "l2",
-                        x = data.frame(database_site4[,c("Country", "timetodx", "CRPC")]),
+                        #x = data.frame(database_site4[,c("Country", "timetodx", "CRPC")]),
+                        x = inputdf,
                         ntotal_cluster = 51,
                         ntrt_cluster = 25,
-                        categorical = c("Country"),
+                        #categorical = c("Country"),
                        # savedata=paste0(dir,"site_rand.csv"),
                         cutoff = 0.1,
                         seed=12345,
