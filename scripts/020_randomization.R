@@ -59,7 +59,7 @@ database_test <- database_site4 %>%
 ### Because this code is not on github, I cannot make a pull request, therefore, the recommended path is to one hot
 ### encode the dataframe yourself, for example
 
-inputdf <- data.frame(model.matrix(~Country+timetodx+CRPC, database_site4))
+inputdf <- data.frame(model.matrix(~-1+Country+timetodx+CRPC, database_site4))
 
 Design_result <- cvrall(clustername = database_site4$sitegp,
                         balancemetric = "l2",

@@ -14,10 +14,11 @@ library(readxl)
 source('ironman_github/utils/load_sas_medidata.R')
 
 # Directory where data are stored
-dir<-'H:\\GU\\IRONMAN\\Data\\2020-12-14\\'
+#dir<-'H:\\GU\\IRONMAN\\Data\\2020-12-14\\'
+dir <- 'C:\\Users\\nn31\\u_data\\ironman_empro\\'
 
-#TOP_LEVEL_DATA_DIRECTORY = "C:\\Users\\nn31\\u_data\\ironman_empro\\c16_170_IRONMAN_635_20201211_115908"
-TOP_LEVEL_DATA_DIRECTORY = paste0(dir, "c16_170_IRONMAN_635_20201211_115908")
+TOP_LEVEL_DATA_DIRECTORY = "C:\\Users\\nn31\\u_data\\ironman_empro\\c16_170_IRONMAN_635_20201211_115908"
+# TOP_LEVEL_DATA_DIRECTORY = paste0(dir, "c16_170_IRONMAN_635_20201211_115908")
 
 # Load All SAS Medidata
 sasdfs <- load_sas_medidata(
