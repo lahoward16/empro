@@ -10,17 +10,12 @@
 ##############################
 
 library(readxl)
+library(here)
 
 source('ironman_github/utils/load_sas_medidata.R')
 
 # Directory where data are stored
-#dir<-'H:\\GU\\IRONMAN\\Data\\2020-12-14\\'
-dir<-'H:\\GU\\IRONMAN\\Data\\2021-04-08\\'
-#dir <- 'C:\\Users\\nn31\\u_data\\ironman_empro\\'
-
-# TOP_LEVEL_DATA_DIRECTORY = "C:\\Users\\nn31\\u_data\\ironman_empro\\c16_170_IRONMAN_635_20201211_115908"
-#TOP_LEVEL_DATA_DIRECTORY = paste0(dir, "c16_170_IRONMAN_635_20201211_115908")
-TOP_LEVEL_DATA_DIRECTORY = paste0(dir, "c16_170_IRONMAN_680_20210201_180923")
+TOP_LEVEL_DATA_DIRECTORY = here("data", "20210408", "c16_170_IRONMAN_680_20210201_180923")
 
 # Load All SAS Medidata
 sasdfs <- load_sas_medidata(
@@ -61,7 +56,7 @@ database <- cohort_data %>%
 #sites <- read_xlsx(fname, sheet=sheetname, col_types = c("text","text","text","text"), range="A1:D73")
   
 # read in site list
-sites<-read_xlsx(path="H:\\GU\\IRONMAN\\EMPRO randomization\\EMPRO_Site List for randomization_April2021_clean.xlsx", 
+sites<-read_xlsx(path="H:\\GU\\EMPRO\\Randomization\\EMPRO_Site List for randomization_April2021_clean.xlsx", 
                  sheet="Sheet1", 
                  col_types = c("text","text","text","numeric","date", "text", "numeric", "numeric", "text", "text", "text"))
 
@@ -94,6 +89,6 @@ database_elig$timetodx = difftime(database_elig$CNSTDATE, database_elig$DIAGBX_D
     # What should we do about patients with missing diagnosis date??
 
 # export data 
-save(database_elig,file=paste0(dir,"IRONMAN_data_for_rand.RData"))
+save(database_elig,file=here("data", "20210408","IRONMAN_data_for_rand.RData"))
 
 

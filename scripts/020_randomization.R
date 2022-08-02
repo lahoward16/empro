@@ -11,13 +11,11 @@
 library(tidyverse)
 library(cvcrand)
 
-# Directory where data are stored
-#dir<-'H:\\GU\\IRONMAN\\Data\\2020-12-14\\'
-dir<-'H:\\GU\\IRONMAN\\Data\\2021-04-08\\'
-#dir <- 'C:\\Users\\nn31\\u_data\\ironman_empro\\'
+# set directory for output
+dir <- "H:/GU/EMPRO/Randomization"
 
 # load data
-load(file=paste0(dir,"IRONMAN_data_for_rand.RData"))
+load(here("data", "20210408","IRONMAN_data_for_rand.RData"))
 
 
 # complete cases of data
