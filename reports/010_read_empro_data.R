@@ -279,7 +279,14 @@ var_label(empro_data) <- list(
   n_total_hard_trigger = "Total number of hard triggers",
   n_clinician_contact = "Number of times a patient was contacted by the clinical team after a hard trigger",
   pain_hard_trigger = "Reported pain as a symptom that resulted in a hard trigger",
-  clinician_contact = "Contacted by the clinical team after a hard trigger was released")
+  clinician_contact = "Contacted by the clinical team after a hard trigger was released",
+  q_month_1 = "Completed PRO-CTCAE questionnare at 1 mo",
+  q_month_2 = "Completed PRO-CTCAE questionnare at 2 mo",
+  q_month_3 = "Completed PRO-CTCAE questionnare at 3 mo",
+  q_month_4 = "Completed PRO-CTCAE questionnare at 4 mo",
+  q_month_5 = "Completed PRO-CTCAE questionnare at 5 mo",
+  q_month_6 = "Completed PRO-CTCAE questionnare at 6 mo",
+  q_month_7 = "Completed PRO-CTCAE questionnare at 7 mo")
 
 ##Save the result for analysis 
 today_rec <- format(Sys.Date(), format="%Y%m%d")
