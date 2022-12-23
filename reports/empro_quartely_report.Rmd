@@ -8,28 +8,199 @@ output:
     toc_float: true
     toc_depth: 3
     keep_tex: false
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("EMPRO Quarterly Report ",Sys.Date(),'.html')) })
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(eval = TRUE, echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.width = 12, fig.height = 8)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r}
+library(tidyverse)
+library(lubridate)
+library(here)
+library(gtsummary)
+library(ggplot2)
+library(kableExtra)
+library(ggpubr)
+library(haven)
+library(labelled)
+library(ggmosaic)
+library(gt)
+library(dplyr)
+library(gtsummary)
+library(flextable)
 ```
 
-## Including Plots
+```{r readdata, echo = F, include = F}
+# load data set
+empro <- here::here("EMPRO_data_20221219.RData")
+load(empro)
 
-You can also embed plots, for example:
+#make enrollment month factor 
+empro_data$enrollment_month1 = factor(empro_data$enrollment_month)
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+#make new variable for yes/no CRPC
+empro_data$crpc_per = empro_data$cohort != "mHSPC"
+
+#relabel new vars
+var_label(empro_data) <- list(
+  crpc_per = "Percent CRPC (vs.mHSPC)", enrollment_month1 = "Study visit at entry")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+### **Table 1:** Characteristics of patients in the intervention group and proxy control group
+
+```{r}
+#create demographic table by invention and control (arm variable = groups)
+empro_data %>%
+  dplyr::select(arm,
+         country,
+         age_baseline,
+         race_gp,
+         diag_enroll,
+         year_emp_enrollment,
+         enrollment_month1,
+         crpc_per,
+         education,
+         yn_eortc_0,
+         yn_eortc_3,
+         yn_eortc_6,
+         yn_eortc_9,
+         yn_eortc_12,
+         dead) %>%
+  tbl_summary(by = arm,
+              missing = "ifany",
+              missing_text = "N missing",
+              type = all_continuous() ~ "continuous2",
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}")) %>%
+  bold_labels() %>%
+  modify_header(label = "",stat_1 = "**Proxy Control** N = {n}", 
+                           stat_2 = "**Intervention** N = {n}")
+
+# to output to .docx:
+# tbl %>%
+#   as_flex_table() %>%
+#   flextable::save_as_docx()
+```
+
+<br> <br>
+
+### **Table 2:** Characteristics of patients in the control arm, overall and by site
+
+```{r}
+#create demographic table of control arm by site
+empro_data %>%
+  filter(arm == "control") %>% 
+  dplyr::select(site,
+         age_baseline,
+         race_gp,
+         diag_enroll,
+         year_emp_enrollment,
+         enrollment_month1,
+         crpc_per,
+         education,
+         yn_eortc_0,
+         yn_eortc_3,
+         yn_eortc_6,
+         yn_eortc_9,
+         yn_eortc_12,
+         eortc_0,
+         eortc_3,
+         eortc_6,
+         eortc_9,
+         eortc_12,
+         dead
+         ) %>%
+  tbl_summary(by = site,
+              missing = "ifany",
+              missing_text = "N missing",
+              type = all_continuous() ~ "continuous2",
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}")) %>%
+  gtsummary::add_overall() %>%
+  bold_labels() %>%
+  modify_header(label = "")
+
+# to output to .docx:
+# tbl %>%
+#   as_flex_table() %>%
+#   flextable::save_as_docx()
+```
+
+<br> <br>
+
+### **Table 3:** Characteristics of patients in the intervention arm, overall and by site
+
+```{r}
+#create demographic table of intervention arm by site
+empro_data %>%
+  filter(arm == "intervention") %>% 
+  dplyr::select(site,
+         age_baseline,
+         race_gp,
+         diag_enroll,
+         year_emp_enrollment,
+         enrollment_month1,
+         crpc_per,
+         education,
+         yn_eortc_0,
+         yn_eortc_3,
+         yn_eortc_6,
+         yn_eortc_9,
+         yn_eortc_12,
+         eortc_0,
+         eortc_3,
+         eortc_6,
+         eortc_9,
+         eortc_12,
+         dead
+         ) %>%
+  tbl_summary(by = site,
+              missing = "ifany",
+              missing_text = "N missing",
+              type = all_continuous() ~ "continuous2",
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}")) %>%
+  gtsummary::add_overall() %>%
+  bold_labels() %>%
+  modify_header(label = "")
+
+# to output to .docx:
+# tbl %>%
+#   as_flex_table() %>%
+#   flextable::save_as_docx()
+```
+
+<br> <br>
+
+### **Table 4:** Secondary outcomes of patients in the intervention arm, overall and by site
+
+```{r}
+#create table of secondary outcomes for intervention arm by site
+empro_data %>%
+  filter(arm == "intervention") %>% 
+  dplyr::select(site,
+         clinician_contact,
+         n_visit_soft_trigger,
+         n_total_soft_trigger,
+         n_visit_hard_trigger,
+         n_total_hard_trigger,
+         pain_hard_trigger) %>%
+  tbl_summary(by = site,
+              missing = "ifany",
+              missing_text = "N missing",
+              type = all_continuous() ~ "continuous2",
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}")) %>%
+  gtsummary::add_overall() %>%
+  bold_labels() %>%
+  modify_header(label = "")
+
+# to output to .docx:
+# tbl %>%
+#   as_flex_table() %>%
+#   flextable::save_as_docx()
+```
