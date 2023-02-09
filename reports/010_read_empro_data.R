@@ -11,6 +11,7 @@ library(dplyr)
 library(labelled)
 library(stringr)
 library(DescTools)
+library(rollmatch)
 
 # update date and export folder name
 datafolder <- "2022-11-28_EMPRO"
@@ -33,7 +34,7 @@ formatted = list()
 
 # new function
 `not.na` <- Negate(`is.na`)
-
+`%notin%` <- Negate(`%in%`)
 
 ###############################
 # read in data
@@ -50,7 +51,12 @@ load(here::here("data", datafolder, datafile))
 
 # pull list of subjects
 formatted$subject_data <- medidata$subject %>%
-  select(subject, site = site_name_true_nth, site_country, arm) 
+  select(subject, site = site_name_true_nth, country=site_country, arm) %>%
+  mutate(site = ifelse(site %in% c("Princess Alexandra Hospital",
+                                   "Redland Hospital", 
+                                   "Royal Brisbane & Women’s Hospital"), 
+                       "Queensland University of Technology",
+                       site))
 
 
 # Pull out fields from COHORT table
@@ -59,15 +65,27 @@ formatted$cohort_data <- medidata$cohort %>%
 
 # Pull out fields from IRONMAN table
 # Pull out EMPRO consent date
-# calculate enrollment month
+# see if there is a visit date that matches up
+# if not, estimate enrollment month
 formatted$consent_data <- medidata$ic %>%
   select(subject, cnstdate) %>%
   full_join(medidata$sub_icds %>%
-              select(subject, empro_cnstdate = sub_icdsstdat)) %>%
-  # find which IRONMAN visit patients enrolled in EMPRO
-  mutate(enrollment_month = RoundTo(interval(cnstdate, empro_cnstdate) %/% months(1), 3))
+              select(subject, empro_cnstdate = sub_icdsstdat), by="subject") %>%
+  full_join(medidata$cyc_date %>%
+               select(subject, visit_date, month), by="subject") %>%
+  filter(!is.na(empro_cnstdate)) %>%
+  mutate(diff = abs((visit_date %--% empro_cnstdate) / days(1))) %>%
+  #filter(!is.na(diff)) %>%
+  arrange(subject, diff) %>%
+  group_by(subject) %>%
+  slice(1) %>%
+  ungroup() %>%
+  # estimate IRONMAN visit date patients enrolled in EMPRO
+  mutate(est_enrollment_month = RoundTo(interval(cnstdate, empro_cnstdate) %/% months(1), 3),
+         enrollment_month = as.numeric(ifelse(diff<=30 & !is.na(diff), month, est_enrollment_month))) %>%
+  select(-visit_date, -month, -est_enrollment_month, -diff)
 
-
+  
 # Pull out fields from MHDIAGBX table
 formatted$diagnosis_data <- medidata$mhdiagbx %>%
   select(subject, diagbx_date_int)
@@ -149,9 +167,17 @@ formatted$triggers <- qre_timeline %>%
          pain_hard_trigger = ifelse(grepl("pain", hard_trigger_domains), 1, 0),
          clinician_contact = ifelse(clinician_status=="Completed", 1, 0),
          visit = as.numeric(gsub("Month ", "", visit)),
-         hard_trigger_contact = ifelse(clinician_status=="Completed", 1, NA)) %>%
+         hard_trigger_contact = ifelse(clinician_status=="Completed", 1, NA),
+         self_mgmt_soft = case_when(
+           !is.na(content_domains_accessed) & soft_trigger==1 ~ 1,
+           is.na(content_domains_accessed) & soft_trigger==1 ~ 0
+         ),
+         self_mgmt_hard = case_when(
+           !is.na(content_domains_accessed) & hard_trigger==1 ~ 1,
+           is.na(content_domains_accessed) & hard_trigger==1 ~ 0
+         )) %>% 
   select(subject, visit, clinician_contact, soft_trigger, hard_trigger, n_soft_trigger, n_hard_trigger, 
-         pain_soft_trigger, pain_hard_trigger, hard_trigger_contact) %>%
+         pain_soft_trigger, pain_hard_trigger, hard_trigger_contact, self_mgmt_soft, self_mgmt_hard) %>%
   # transpose data
   arrange(subject, visit) %>%
   pivot_wider(id_cols = "subject",
@@ -165,7 +191,9 @@ formatted$triggers <- qre_timeline %>%
          n_total_hard_trigger = select(., starts_with("n_hard_trigger_")) %>% rowSums(na.rm=TRUE),
          n_clinician_contact = select(., starts_with("clinician_contact")) %>% rowSums(na.rm=TRUE),
          pain_hard_trigger = ifelse(select(., starts_with("pain_hard_trigger")) %>% rowSums(na.rm=TRUE) > 0, 1, 0),
-         clinician_contact = ifelse(select(., starts_with("clinician_contact")) %>% rowSums(na.rm=TRUE) > 0, 1, 0))
+         clinician_contact = ifelse(select(., starts_with("clinician_contact")) %>% rowSums(na.rm=TRUE) > 0, 1, 0),
+         any_hard_trigger = ifelse(n_total_hard_trigger>0, 1, 0),
+         any_soft_trigger = ifelse(n_total_soft_trigger>0, 1, 0))
 
 # completed questionnaires
 formatted$completed_q <- empro %>%
@@ -222,6 +250,251 @@ formatted$eortc_yn = formatted$eortc %>%
 all_data = Reduce(function(...) merge(..., by="subject", all=T), formatted) 
 
 ###############################
+# exclude patients affected by 
+# technical bug 
+###############################
+
+all_data <- all_data %>%
+  filter(!(subject %in% c("170-48-051", "170-48-053", "170-48-055", "170-48-058", "170-48-063", 
+         "170-48-047", "170-40-004", "170-40-033", "170-06-096", "170-06-099",
+         "170-96-014", "170-96-024", "170-96-035", "170-96-073", "170-96-076")))
+
+# patient "170-48-056" 3 month survey data was deleted
+
+# These patients are in the subject table (arm=intervention) but not in the match
+# data, i.e. missing critical data somwhere.
+# "170-06-096" - bug
+# "170-06-099" - bug
+# "170-40-004" - bug
+# "170-40-033" - bug
+# "170-48-047" - bug
+# "170-48-051" - bug
+# "170-48-053" - bug
+# "170-48-055" - bug
+# "170-48-058" - bug
+# "170-48-063" - bug
+# "170-96-006" - no EMPRO consent date
+# "170-96-014" - bug
+# "170-96-023" - no EMPRO consent date
+# "170-96-024" - bug
+# "170-96-035" - bug
+# "170-96-038" - no EMPRO consent date
+# "170-96-048" - not in cyc_date table; was able to add back in
+# "170-96-073" - bug
+# "170-96-074" - not in cyc_date table; was able to add back in
+# "170-96-076" - bug
+# "170-96-078" - not in cyc_date table; was able to add back in
+
+###############################
+# select control group
+###############################
+
+# match on:
+    # country
+    # time from diagnosis to enrollment
+    # enrollment year
+    # study visit at entry
+    # disease status
+    # age at entry
+    # race
+    # education level
+matchdata1 = all_data %>%
+  select(subject, diagbx_date_int, enrollment_month, cohort_std, brthdat_int, race, education_mc, arm, empro_cnstdate) %>%
+  mutate(race_gp = case_when(race=="White / Caucasian" ~ 1,
+                             race=="African / African American / Black / Black British / Caribbean" ~ 2,
+                             TRUE ~ 99),
+         educ_gp = case_when(
+           education_mc %in% c("less than secondary", "some secondary", "secondary school diploma") ~ 1,
+           education_mc %in% c("some university", "university 2 yr", "university 4 yr") ~ 2,
+           TRUE ~ 99)) %>% 
+  # note: 3 subjects have no EMPRO consent date (exclude for now)
+  filter(subject %notin% c("170-96-006", "170-96-038", "170-96-023")) %>%
+  # note: 3 subjects are not in cyc_date table
+  full_join(medidata$cyc_date %>% select(subject, visit_date, month), by="subject") %>%
+  mutate(visit_date = as.Date(ifelse(is.na(visit_date), empro_cnstdate, visit_date), origin = "1970-01-01")) %>% 
+  filter(!is.na(visit_date) | arm == "intervention") %>% 
+  mutate(month = ifelse(month==999, NA, month),
+         age_visit = as.numeric(floor((visit_date - brthdat_int)/365.25)),
+         enrollment_year = year(visit_date),
+         dx_to_enroll = (diagbx_date_int %--% visit_date) / months(1),
+         month = as.numeric(month),
+         arm = as.numeric(ifelse(arm=="control", 0, 1)),
+         # everything must be positive so shift +1 month
+         enrollment_month = enrollment_month + 1,
+         month = month + 1,
+         month = ifelse(is.na(month), enrollment_month, month),
+         enrollment_month = ifelse(is.na(enrollment_month), month, enrollment_month)
+         ) %>% 
+  select(-diagbx_date_int, -brthdat_int, -race, -education_mc, -visit_date, -empro_cnstdate) %>%
+  filter(!is.na(month) & !is.na(cohort_std) & month!=999 & !is.na(age_visit)) %>% 
+  left_join(formatted$subject_data %>% select(subject, country), by="subject") %>%
+  mutate(country_std = case_when(
+    country=="Australia" ~ 1,
+    country=="Canada" ~ 2,
+    country=="England" ~ 3,
+    country=="USA" ~ 4))
+
+# add row for all EMPRO patients since some are missing data around their enrollment data
+# only do this for patients who don't have a match
+all_emp <- matchdata1 %>% filter(arm==1) %>% pull(subject) %>% unique()
+match_emp <- matchdata1 %>% filter(arm==1 & enrollment_month==month) %>% pull(subject) %>% unique()
+nomatch_emp <- setdiff(all_emp, match_emp)
+matchdata2 = matchdata1 %>%
+  filter(arm==1 & subject %in% nomatch_emp) %>%
+  arrange(subject, month) %>%
+  group_by(subject) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(age_visit = floor(age_visit + (enrollment_month - month)/12),
+         enrollment_year = floor(enrollment_year + (enrollment_month - month)/12),
+         month = enrollment_month) 
+  
+# add extra rows, eliminate duplicates
+matchdata <- matchdata1 %>%
+  bind_rows(matchdata2)
+
+
+# this did not work because it requires lookback so I accessed the github code
+# reduced_data <- reduce_data(data = matchdata, treat = "arm",
+#                             tm = "month", entry = "enrollment_month",
+#                             id = "subject", lookback = 3)
+
+# reduce data
+arm_set <- matchdata[matchdata$arm == 1 &
+                    (matchdata$month == matchdata$enrollment_month), ] 
+# patients without data entered get dropped at this step
+comp_set  <- matchdata[matchdata$arm == 0 &
+                    (matchdata$month %in% unique(arm_set$month)), ]
+reduced_data <- dplyr::bind_rows(arm_set, comp_set)
+
+
+# add propensity scores
+fm <- as.formula(arm ~ as.factor(country_std) + enrollment_year + enrollment_month + 
+                   as.factor(cohort_std) + age_visit + as.factor(race_gp) + as.factor(educ_gp))
+vars <- all.vars(fm)
+scored_data <- score_data(reduced_data = reduced_data,
+                          model_type = "logistic", match_on = "logit",
+                          fm = fm, treat = "arm",
+                          tm = "month", entry = "enrollment_month", id = "subject")
+
+# perform matching
+# output <- rollmatch(scored_data, data=matchdata, treat = "arm",
+#                     tm = "month", entry = "enrollment_month", id = "subject",
+#                     vars = vars, lookback = 3, alpha = .5,
+#                     standard_deviation = "average", num_matches = 1,
+#                     replacement = FALSE)
+# Create pool of possible matches
+comparison_pool <-
+  dplyr::inner_join(scored_data[scored_data$arm == 1, ],
+                    scored_data[scored_data$arm == 0, ], by = "month")
+comparison_pool$difference <-
+  abs(comparison_pool$score.x - comparison_pool$score.y)
+comparison_pool <- comparison_pool %>%
+  dplyr::select(dplyr::one_of("month", paste0("subject", ".x"), paste0("subject", ".y")),
+                paste0("enrollment_month", ".x"), paste0("enrollment_month", ".y"),
+                "score.x", "score.y", "difference")
+names(comparison_pool) <- c("month", "arm_subject", "control_subject",
+                            paste0("arm_", "enrollment_month"),
+                            paste0("control_", "enrollment_month"),
+                            "arm_score", "control_score", "difference")
+
+# Trim pool based on specified caliper
+s_df <- scored_data
+
+var_treat <- var(s_df[(s_df$arm == 1), "score"])
+var_untreat <- var(s_df[(s_df$arm == 0), "score"])
+
+pooled_stdev <- sqrt( (var_treat + var_untreat) / 2)
+
+width <- 0.5 * pooled_stdev
+trimmed_pool <-
+  dplyr::filter(comparison_pool,
+                comparison_pool$difference <= as.numeric(width))
+
+trimmed_pool <-
+  trimmed_pool[order(trimmed_pool$month,
+                     trimmed_pool$arm_subject, trimmed_pool$difference), ]
+
+
+
+# Using matching algorithm to find top matches
+create_matches <- function(trimmed_pool, tm, num_matches = 1,
+                           replacement = FALSE){
+  names(trimmed_pool)[1] <- "time"
+  difference <- ""; num.assigned <- ""; arm_subject <- ""; control_subject <- "";
+  
+  # initialize matches as empty
+  matches <- trimmed_pool[0, ]
+  
+  count <- 1
+  # Loop
+  repeat {
+    # first_choice is the first entry in the comparison pool for each arm_subject
+    first_choice <- trimmed_pool[!duplicated(trimmed_pool$arm_subject), ]
+    
+    if (nrow(first_choice) == 0)
+      break
+    
+    else {
+      first_choice <- first_choice[order(first_choice$difference), ]
+      first_choice <- first_choice[!duplicated(first_choice$control_subject), ]
+      current_matches <- first_choice[order(first_choice$difference), ]
+    }
+    # Break out of loop if no matches were assigned
+    if (nrow(current_matches) == 0)
+      break
+    
+    matches <- dplyr::bind_rows(matches, current_matches)
+    
+    if (nrow(trimmed_pool) > 0) {
+      #filter out assigned treatment/match pairs
+      trimmed_pool <- dplyr::setdiff(trimmed_pool, current_matches)
+      
+      # Keep records where control_subject is not in unique(matches$control_subject)
+      diff_control_subject <-
+        dplyr::filter(trimmed_pool,
+                      !(control_subject %in%
+                          unique(current_matches$control_subject) ))
+      
+      #combine the rows to keep and re-sort comparison pool
+      trimmed_pool <-
+        dplyr::arrange(dplyr::bind_rows(diff_control_subject, keep),
+                       time, arm_subject, difference)
+      
+      # If num_matches matches have been assigned, remove the treatments
+      # from the comparison pool
+      matches_count <- matches[matches$arm_subject %in%
+                                 unique(current_matches$arm_subject), ] %>%
+        dplyr::group_by(arm_subject) %>%
+        dplyr::summarise(num.assigned = n()) %>%
+        dplyr::filter(num.assigned == num_matches)
+      trimmed_pool <-
+        dplyr::filter(trimmed_pool,
+                      !(arm_subject %in% matches_count$arm_subject ))
+      
+    } else break  # break out of loop if comparison pool is empty
+    count <- count + 1
+  }
+  names(matches)[1] <- tm
+  return(matches)
+}
+
+matches <- create_matches(trimmed_pool, "month", num_matches=1, replacement=TRUE)
+# this worked! correct number of patients
+
+# select necessary variables to merge into big dataset
+controls <- matches %>% select(subject = control_subject, 
+                               enrollment_month = control_enrollment_month) %>%
+  mutate(enrollment_month = enrollment_month - 1, 
+         match = 1) %>%
+  left_join(medidata$cyc_date %>% 
+              select(subject, visit_date, month) %>%
+              mutate(month = as.numeric(month)), 
+            by=c("subject", "enrollment_month"="month")) %>%
+  rename(enrollment_month2=enrollment_month, visit_date2=visit_date)
+
+
+###############################
 # create new variables
 ###############################
 
@@ -230,8 +503,17 @@ ynlev2 = c(0,1)
 ynlab2 = c("No", "Yes")
 
 empro_data <- all_data %>%
-  mutate(# age  
-    age_baseline = as.numeric(floor((empro_cnstdate - brthdat_int)/365)),
+  left_join(controls, by="subject") %>%
+  filter(arm=="intervention" | match ==1) %>%
+  # note: 3 subjects have no EMPRO consent date (exclude for now)
+  filter(subject %notin% c("170-96-006", "170-96-038", "170-96-023")) %>%
+  mutate(
+    # combine match data (proxy controls have theoretical entry date)
+    empro_cnstdate = as.Date(ifelse(is.na(empro_cnstdate), visit_date2, empro_cnstdate), 
+                             origin = "1970-01-01"),
+    enrollment_month = ifelse(is.na(enrollment_month), enrollment_month2, enrollment_month),
+    # other variables
+    age_baseline = as.numeric(floor((empro_cnstdate - brthdat_int)/365.25)),
     year_emp_enrollment = factor(year(empro_cnstdate)),
     year_iron_enrollment = factor(year(cnstdate)),
     race_gp = case_when(race=="White / Caucasian" ~ 1,
@@ -245,15 +527,30 @@ empro_data <- all_data %>%
     dead = factor(dead, levels=ynlev2, labels=ynlab2),
     pain_hard_trigger = ifelse(is.na(pain_hard_trigger) & arm=="intervention", 0, pain_hard_trigger),
     pain_hard_trigger = factor(pain_hard_trigger, levels=ynlev2, labels=ynlab2),
+    any_soft_trigger = factor(any_soft_trigger, levels=ynlev2, labels=ynlab2), 
+    any_hard_trigger = factor(any_hard_trigger, levels=ynlev2, labels=ynlab2),     
     n_total_soft_trigger = ifelse(is.na(n_total_soft_trigger) & arm=="intervention", 0, n_total_soft_trigger),
     n_visit_soft_trigger = ifelse(is.na(n_visit_soft_trigger) & arm=="intervention", 0, n_visit_soft_trigger),
     n_total_hard_trigger = ifelse(is.na(n_total_hard_trigger) & arm=="intervention", 0, n_total_hard_trigger),
     n_visit_hard_trigger = ifelse(is.na(n_visit_hard_trigger) & arm=="intervention", 0, n_visit_hard_trigger),
-    n_clinician_contact = ifelse(is.na(n_clinician_contact) & n_visit_hard_trigger>0, 0, n_clinician_contact)) 
+    n_clinician_contact = ifelse(is.na(n_clinician_contact) & n_visit_hard_trigger>0, 0, n_clinician_contact),
+    #clinician_contact = ifelse(any_hard_trigger==0, NA, clinician_contact),
+    q_month_1 = ifelse(is.na(q_month_1) & arm=="intervention", 0, q_month_1),
+    q_month_2 = ifelse(is.na(q_month_2) & arm=="intervention", 0, q_month_2),
+    q_month_3 = ifelse(is.na(q_month_3) & arm=="intervention", 0, q_month_3),
+    q_month_4 = ifelse(is.na(q_month_4) & arm=="intervention", 0, q_month_4),
+    q_month_5 = ifelse(is.na(q_month_5) & arm=="intervention", 0, q_month_5),
+    q_month_6 = ifelse(is.na(q_month_6) & arm=="intervention", 0, q_month_6),
+    q_month_7 = ifelse(is.na(q_month_7) & arm=="intervention", 0, q_month_7),
+    yn_eortc_0 = ifelse(is.na(yn_eortc_0), FALSE, yn_eortc_0),
+    yn_eortc_3 = ifelse(is.na(yn_eortc_3), FALSE, yn_eortc_3),
+    yn_eortc_6 = ifelse(is.na(yn_eortc_6), FALSE, yn_eortc_6),
+    yn_eortc_9 = ifelse(is.na(yn_eortc_9), FALSE, yn_eortc_9),
+    yn_eortc_12 = ifelse(is.na(yn_eortc_12), FALSE, yn_eortc_12)) 
 
 # label variables
 var_label(empro_data) <- list(
-  site_country = "Country",
+  country = "Country",
   age_baseline = "Age at study entry",
   race_gp = "Race",
   diag_enroll = "Months from diagnosis to enrollment",
@@ -280,6 +577,8 @@ var_label(empro_data) <- list(
   n_clinician_contact = "Number of times a patient was contacted by the clinical team after a hard trigger",
   pain_hard_trigger = "Reported pain as a symptom that resulted in a hard trigger",
   clinician_contact = "Contacted by the clinical team after a hard trigger was released",
+  any_hard_trigger = "Any hard trigger released",
+  any_soft_trigger = "Any soft trigger released",
   q_month_1 = "Completed PRO-CTCAE questionnare at 1 mo",
   q_month_2 = "Completed PRO-CTCAE questionnare at 2 mo",
   q_month_3 = "Completed PRO-CTCAE questionnare at 3 mo",
