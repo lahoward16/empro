@@ -12,17 +12,24 @@ library(labelled)
 library(stringr)
 library(DescTools)
 library(rollmatch)
+library(purrr)
+
+
+#testing push
+
+
+#install.packages("purrr")
 
 # update date and export folder name
-datafolder <- "2022-11-28_EMPRO"
-datafile <- "2022-11-28_empro.RData"
+datafolder <- "2023-02-16_EMPRO"
+datafile <- "2023-02-16_empro.RData"
 
 # load ironman package
-#devtools::install_github("tgerke/ironer", auth_token="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")
+# devtools::install_github("tgerke/ironer", auth_token="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")
 # note 10/4/22: ironer package was moved here:
 # Repo: https://github.com/pcctc/ironer
 # Website: https://pcctc.github.io/ironer/
-#devtools::install_github("pcctc/ironer")
+# devtools::install_github("pcctc/ironer")
 
 library(ironer)
 
@@ -48,10 +55,10 @@ load(here::here("data", datafolder, datafile))
 # pull out data elements 
 ###############################
 
-
 # pull list of subjects
 formatted$subject_data <- medidata$subject %>%
   select(subject, site = site_name_true_nth, country=site_country, arm) %>%
+  #groups hospitals that fall in the Queensland system
   mutate(site = ifelse(site %in% c("Princess Alexandra Hospital",
                                    "Redland Hospital", 
                                    "Royal Brisbane & Women’s Hospital"), 
@@ -237,7 +244,7 @@ formatted$eortc_yn = formatted$eortc %>%
               matches("eortc"))
 
 ###############################
-# score PROAE CTC questionnaires 
+# score PROAE CTC questionnaires
 ###############################
 
 # There are no standardized scoring rules for how to combine attributes 
@@ -262,7 +269,7 @@ all_data <- all_data %>%
 # patient "170-48-056" 3 month survey data was deleted
 
 # These patients are in the subject table (arm=intervention) but not in the match
-# data, i.e. missing critical data somwhere.
+# data, i.e. missing critical data somewhere.
 # "170-06-096" - bug
 # "170-06-099" - bug
 # "170-40-004" - bug
@@ -420,6 +427,13 @@ trimmed_pool <-
 # Using matching algorithm to find top matches
 create_matches <- function(trimmed_pool, tm, num_matches = 1,
                            replacement = FALSE){
+  
+
+
+    tm=trimmed_pool$month
+    num_matches = 1
+    replacement = FALSE
+
   names(trimmed_pool)[1] <- "time"
   difference <- ""; num.assigned <- ""; arm_subject <- ""; control_subject <- "";
   
@@ -479,7 +493,11 @@ create_matches <- function(trimmed_pool, tm, num_matches = 1,
   return(matches)
 }
 
-matches <- create_matches(trimmed_pool, "month", num_matches=1, replacement=TRUE)
+#having issues in bind_rows like the "keep" argument. 
+#keep needs to be a data frame, not defined above in the function create_matches.
+
+##
+matches <- create_matches(trimmed_pool, trimmed_pool$month, num_matches=1, replacement=TRUE)
 # this worked! correct number of patients
 
 # select necessary variables to merge into big dataset
@@ -589,7 +607,7 @@ var_label(empro_data) <- list(
 
 ##Save the result for analysis 
 today_rec <- format(Sys.Date(), format="%Y%m%d")
-savfile<-here::here("data", paste0("EMPRO_data_", today_rec, ".RData"))
+savfile<-here::here("EMPRO", paste0("EMPRO_data_", today_rec, ".RData"))
 save(empro_data,file= savfile)
 tools::md5sum(savfile)
 
