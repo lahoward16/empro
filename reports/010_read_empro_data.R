@@ -458,7 +458,7 @@ create_matches <- function(trimmed_pool, tm, num_matches = 1,
       
       #combine the rows to keep and re-sort comparison pool
       trimmed_pool <-
-        dplyr::arrange(dplyr::bind_rows(diff_control_subject, keep),
+        dplyr::arrange(dplyr::bind_rows(diff_control_subject),
                        time, arm_subject, difference)
       
       # If num_matches matches have been assigned, remove the treatments
