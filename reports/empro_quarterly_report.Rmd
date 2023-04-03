@@ -8,7 +8,7 @@ knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = e
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(eval = TRUE, echo = FALSE, warning = FALSE, message = FALSE,
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE, warning = FALSE, message = FALSE,
                       fig.width = 12, fig.height = 8)
 ```
 
@@ -30,8 +30,8 @@ library(flextable)
 ```
 
 ```{r readdata, echo = F, include = F}
-# load data set
-empro <- here::here("data", "EMPRO_data_20230207.RData")
+# load data
+empro <- here::here("EMPRO", "EMPRO_data_20230207.RData") #set path to data file
 load(empro)
 
 #make enrollment month factor 
@@ -151,8 +151,8 @@ empro_data %>%
          eortc_0,
          eortc_3,
          eortc_6,
-         eortc_9,
-         eortc_12,
+         #eortc_9, no need to show these because theyre 0.
+         #eortc_12,
          dead
          ) %>%
   tbl_summary(by = site,
