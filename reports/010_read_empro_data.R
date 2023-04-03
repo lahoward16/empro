@@ -79,7 +79,7 @@ formatted$consent_data <- medidata$ic %>%
   full_join(medidata$sub_icds %>%
               select(subject, empro_cnstdate = sub_icdsstdat), by="subject") %>%
   full_join(medidata$cyc_date %>%
-               select(subject, visit_date, month), by="subject") %>%
+               select(subject, visit_date, month), by="subject", multiple="all") %>%
   filter(!is.na(empro_cnstdate)) %>%
   mutate(diff = abs((visit_date %--% empro_cnstdate) / days(1))) %>%
   #filter(!is.na(diff)) %>%
@@ -191,7 +191,7 @@ formatted$triggers <- qre_timeline %>%
               names_from=visit,
               values_from=c(clinician_contact, soft_trigger, hard_trigger, 
                             n_soft_trigger, n_hard_trigger, hard_trigger_contact,
-                            pain_soft_trigger, pain_hard_trigger)) %>%
+                            pain_soft_trigger, pain_hard_trigger, self_mgmt_soft, self_mgmt_hard)) %>%
   mutate(n_visit_soft_trigger = select(., starts_with("soft_trigger_")) %>% rowSums(na.rm=TRUE),
          n_visit_hard_trigger = select(., starts_with("hard_trigger_")) %>% rowSums(na.rm=TRUE),
          n_total_soft_trigger = select(., starts_with("n_soft_trigger_")) %>% rowSums(na.rm=TRUE),
@@ -200,7 +200,9 @@ formatted$triggers <- qre_timeline %>%
          pain_hard_trigger = ifelse(select(., starts_with("pain_hard_trigger")) %>% rowSums(na.rm=TRUE) > 0, 1, 0),
          clinician_contact = ifelse(select(., starts_with("clinician_contact")) %>% rowSums(na.rm=TRUE) > 0, 1, 0),
          any_hard_trigger = ifelse(n_total_hard_trigger>0, 1, 0),
-         any_soft_trigger = ifelse(n_total_soft_trigger>0, 1, 0))
+         any_soft_trigger = ifelse(n_total_soft_trigger>0, 1, 0),
+         self_mgmt_soft = ifelse(select(., starts_with("self_mgmt_soft")) %>% rowSums(na.rm=TRUE) > 0, 1, 0),
+         self_mgmt_hard = ifelse(select(., starts_with("self_mgmt_hard")) %>% rowSums(na.rm=TRUE) > 0, 1, 0))
 
 # completed questionnaires
 formatted$completed_q <- empro %>%
@@ -296,6 +298,10 @@ all_data <- all_data %>%
 # select control group
 ###############################
 
+# subjects have no EMPRO consent date (exclude for now)
+noconsent <- all_data %>% filter(arm=="intervention" & is.na(empro_cnstdate)) %>% pull(subject)
+
+
 # match on:
     # country
     # time from diagnosis to enrollment
@@ -314,10 +320,12 @@ matchdata1 = all_data %>%
            education_mc %in% c("less than secondary", "some secondary", "secondary school diploma") ~ 1,
            education_mc %in% c("some university", "university 2 yr", "university 4 yr") ~ 2,
            TRUE ~ 99)) %>% 
-  # note: 3 subjects have no EMPRO consent date (exclude for now)
-  filter(subject %notin% c("170-96-006", "170-96-038", "170-96-023")) %>%
-  # note: 3 subjects are not in cyc_date table
-  full_join(medidata$cyc_date %>% select(subject, visit_date, month), by="subject") %>%
+  # note: 4 subjects have no EMPRO consent date (exclude for now)
+  # all_data %>% filter(arm=="intervention" & is.na(empro_cnstdate)) %>% pull(subject)
+  filter(subject %notin% noconsent) %>%
+  # note: 7 subjects are not in cyc_date table
+  # unique(arm_set$subject[arm_set$subject %notin% medidata$cyc_date$subject])
+  full_join(medidata$cyc_date %>% select(subject, visit_date, month), by="subject", multiple="all") %>%
   mutate(visit_date = as.Date(ifelse(is.na(visit_date), empro_cnstdate, visit_date), origin = "1970-01-01")) %>% 
   filter(!is.na(visit_date) | arm == "intervention") %>% 
   mutate(month = ifelse(month==999, NA, month),
@@ -360,6 +368,8 @@ matchdata2 = matchdata1 %>%
 matchdata <- matchdata1 %>%
   bind_rows(matchdata2)
 
+# check number of subjects in matchdata
+matchdata %>% filter(arm==1) %>% pull(subject) %>% unique() %>% length()
 
 # this did not work because it requires lookback so I accessed the github code
 # reduced_data <- reduce_data(data = matchdata, treat = "arm",
@@ -393,7 +403,7 @@ scored_data <- score_data(reduced_data = reduced_data,
 # Create pool of possible matches
 comparison_pool <-
   dplyr::inner_join(scored_data[scored_data$arm == 1, ],
-                    scored_data[scored_data$arm == 0, ], by = "month")
+                    scored_data[scored_data$arm == 0, ], by = "month", multiple = "all")
 comparison_pool$difference <-
   abs(comparison_pool$score.x - comparison_pool$score.y)
 comparison_pool <- comparison_pool %>%
@@ -424,15 +434,10 @@ trimmed_pool <-
 
 
 
+    
 # Using matching algorithm to find top matches
 create_matches <- function(trimmed_pool, tm, num_matches = 1,
                            replacement = FALSE){
-  
-
-
-    tm=trimmed_pool$month
-    num_matches = 1
-    replacement = FALSE
 
   names(trimmed_pool)[1] <- "time"
   difference <- ""; num.assigned <- ""; arm_subject <- ""; control_subject <- "";
@@ -472,7 +477,7 @@ create_matches <- function(trimmed_pool, tm, num_matches = 1,
       
       #combine the rows to keep and re-sort comparison pool
       trimmed_pool <-
-        dplyr::arrange(dplyr::bind_rows(diff_control_subject, keep),
+        dplyr::arrange(dplyr::bind_rows(diff_control_subject),
                        time, arm_subject, difference)
       
       # If num_matches matches have been assigned, remove the treatments
@@ -493,12 +498,14 @@ create_matches <- function(trimmed_pool, tm, num_matches = 1,
   return(matches)
 }
 
-#having issues in bind_rows like the "keep" argument. 
-#keep needs to be a data frame, not defined above in the function create_matches.
 
-##
-matches <- create_matches(trimmed_pool, trimmed_pool$month, num_matches=1, replacement=TRUE)
-# this worked! correct number of patients
+## find matches 
+matches <- create_matches(trimmed_pool, trimmed_pool$month, num_matches=1)
+
+# patients without matches - March 2023
+ptlist = matchdata %>% filter(arm==1) %>% pull(subject) %>% unique()
+ptlist[ptlist %notin% matches$arm_subject]
+# "170-06-103" "170-06-104" "170-37-004"
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -524,7 +531,11 @@ empro_data <- all_data %>%
   left_join(controls, by="subject") %>%
   filter(arm=="intervention" | match ==1) %>%
   # note: 3 subjects have no EMPRO consent date (exclude for now)
-  filter(subject %notin% c("170-96-006", "170-96-038", "170-96-023")) %>%
+  filter(subject %notin% noconsent) %>%
+  # technical bug 
+  filter(!(subject %in% c("170-48-051", "170-48-053", "170-48-055", "170-48-058", "170-48-063", 
+                          "170-48-047", "170-40-004", "170-40-033", "170-06-096", "170-06-099",
+                          "170-96-014", "170-96-024", "170-96-035", "170-96-073", "170-96-076"))) %>%
   mutate(
     # combine match data (proxy controls have theoretical entry date)
     empro_cnstdate = as.Date(ifelse(is.na(empro_cnstdate), visit_date2, empro_cnstdate), 
@@ -552,6 +563,8 @@ empro_data <- all_data %>%
     n_total_hard_trigger = ifelse(is.na(n_total_hard_trigger) & arm=="intervention", 0, n_total_hard_trigger),
     n_visit_hard_trigger = ifelse(is.na(n_visit_hard_trigger) & arm=="intervention", 0, n_visit_hard_trigger),
     n_clinician_contact = ifelse(is.na(n_clinician_contact) & n_visit_hard_trigger>0, 0, n_clinician_contact),
+    self_mgmt_soft = factor(self_mgmt_soft, levels=ynlev2, labels=ynlab2),
+    self_mgmt_hard = factor(self_mgmt_hard, levels=ynlev2, labels=ynlab2),
     #clinician_contact = ifelse(any_hard_trigger==0, NA, clinician_contact),
     q_month_1 = ifelse(is.na(q_month_1) & arm=="intervention", 0, q_month_1),
     q_month_2 = ifelse(is.na(q_month_2) & arm=="intervention", 0, q_month_2),
@@ -597,6 +610,8 @@ var_label(empro_data) <- list(
   clinician_contact = "Contacted by the clinical team after a hard trigger was released",
   any_hard_trigger = "Any hard trigger released",
   any_soft_trigger = "Any soft trigger released",
+  self_mgmt_soft = "Engaged in TrueNTH self-management tool after a soft trigger was released",
+  self_mgmt_hard = "Engaged in TrueNTH self-management tool after a hard trigger was released",
   q_month_1 = "Completed PRO-CTCAE questionnare at 1 mo",
   q_month_2 = "Completed PRO-CTCAE questionnare at 2 mo",
   q_month_3 = "Completed PRO-CTCAE questionnare at 3 mo",
@@ -607,7 +622,7 @@ var_label(empro_data) <- list(
 
 ##Save the result for analysis 
 today_rec <- format(Sys.Date(), format="%Y%m%d")
-savfile<-here::here("EMPRO", paste0("EMPRO_data_", today_rec, ".RData"))
+savfile<-here::here("data", paste0("EMPRO_data_", today_rec, ".RData"))
 save(empro_data,file= savfile)
 tools::md5sum(savfile)
 

@@ -30,8 +30,13 @@ library(flextable)
 ```
 
 ```{r readdata, echo = F, include = F}
+<<<<<<< HEAD
 # load data
 empro <- here::here("EMPRO", "EMPRO_data_20230207.RData") #set path to data file
+=======
+# load data set
+empro <- here::here("data", "EMPRO_data_20230327.RData")
+>>>>>>> 5390fa9e02c2599c0730ce2a65132b09eaa1e538
 load(empro)
 
 #make enrollment month factor 
@@ -44,8 +49,11 @@ empro_data$crpc_per = empro_data$cohort != "mHSPC"
 var_label(empro_data) <- list(
   crpc_per = "Percent CRPC (vs.mHSPC)", enrollment_month1 = "Study visit at entry")
 ```
-  The "proxy control" group is selected through propensity score methods using the package {rollmatch}. We matched 1:1 on country, time from diagnosis to enrollment, enrollment year, study visit at entry, disease status, age at entry, race, and education level. {rollmatch} selects the control patient as well as the theoretical entry time for the control patient to best match the patients in the intervention arm.   
-  Note that 12 EMPRO patients were excluded due to the TrueNTH technical bug (it seems that 4 were removed from the database or data was never entered), and an additional 3 EMPRO patients were excluded because they had no EMPRO consent date entered.
+The "proxy control" group is selected through propensity score methods using the package {rollmatch}. We matched 1:1 on country, time from diagnosis to enrollment, enrollment year, study visit at entry, disease status, age at entry, race, and education level. {rollmatch} selects the control patient as well as the theoretical entry time for the control patient to best match the patients in the intervention arm.
+
+Note that 12 EMPRO patients were excluded due to the TrueNTH technical bug (it seems that 4 were removed from the database or data was never entered), and an additional 4 EMPRO patients were excluded because they had no EMPRO consent date entered.
+
+There were three EMPRO patients who were not matched, but since this is an interim analysis we will continue to monitor if we have trouble matching these patients.
 
 ### **Table 1:** Characteristics of patients in the intervention group and proxy control group
 
@@ -181,6 +189,8 @@ empro_data %>%
   filter(arm == "intervention") %>% 
   dplyr::select(site,
          clinician_contact,
+         self_mgmt_soft,
+         self_mgmt_hard,
          n_visit_soft_trigger,
          n_total_soft_trigger,
          n_visit_hard_trigger,
