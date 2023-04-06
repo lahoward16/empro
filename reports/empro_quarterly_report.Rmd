@@ -31,7 +31,7 @@ library(flextable)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20230327.RData")
+empro <- here::here("data", "EMPRO_data_20230406.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -68,7 +68,6 @@ empro_data %>%
          yn_eortc_3,
          yn_eortc_6,
          yn_eortc_9,
-         yn_eortc_12,
          dead) %>%
   tbl_summary(by = arm,
               missing = "ifany",
@@ -106,12 +105,10 @@ empro_data %>%
          yn_eortc_3,
          yn_eortc_6,
          yn_eortc_9,
-         yn_eortc_12,
          eortc_0,
          eortc_3,
          eortc_6,
          eortc_9,
-         eortc_12,
          dead
          ) %>%
   tbl_summary(by = site,
@@ -150,18 +147,22 @@ empro_data %>%
          yn_eortc_3,
          yn_eortc_6,
          yn_eortc_9,
-         yn_eortc_12,
          eortc_0,
          eortc_3,
          eortc_6,
          eortc_9,
-         eortc_12,
          dead
          ) %>%
   tbl_summary(by = site,
               missing = "ifany",
               missing_text = "N missing",
-              type = all_continuous() ~ "continuous2",
+              type = list(age_baseline ~ "continuous2",
+                          eortc_0 ~ "continuous2",
+                          diag_enroll ~ "continuous2",
+                          eortc_3 ~ "continuous2",
+                          eortc_6 ~ "continuous2",
+                          eortc_9 ~ "continuous2"
+                          ),
               statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
                                                "{min}, {max}")) %>%
   gtsummary::add_overall() %>%

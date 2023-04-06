@@ -205,13 +205,14 @@ formatted$triggers <- qre_timeline %>%
          self_mgmt_hard = ifelse(select(., starts_with("self_mgmt_hard")) %>% rowSums(na.rm=TRUE) > 0, 1, 0))
 
 # completed questionnaires
-formatted$completed_q <- empro %>%
-  rename(subject=study_id) %>%
-  filter(status=="completed") %>%
-  select(subject, timepoint) %>%
-  mutate(complete=1,
-         timepoint = tolower(gsub(" ", "_", timepoint))) %>%
-  pivot_wider(names_from=timepoint, values_from=complete, names_prefix = "q_")
+# NOTE: this is not shifted based on enrollment month
+# formatted$completed_q <- empro %>%
+#   rename(subject=study_id) %>%
+#   filter(status=="completed") %>%
+#   select(subject, timepoint) %>%
+#   mutate(complete=1,
+#          timepoint = tolower(gsub(" ", "_", timepoint))) %>%
+#   pivot_wider(names_from=timepoint, values_from=complete, names_prefix = "q_")
   
 # EORTC COMPOSITE SCORES
 # Global health status/QoL: eortc.29, eortc.30
@@ -236,7 +237,6 @@ formatted$eortc <- proms %>%
   filter(!is.na(qlqtotal)) %>%
   arrange(timepoint) %>%
   pivot_wider(id_cols=subject, names_from=timepoint, values_from=qlqtotal, names_prefix = "eortc_") 
-# TO DO: relabel EORTC questionnaires for control group after finding baseline time point
 
 # flag for whether patient completed each EOTRC
 formatted$eortc_yn = formatted$eortc %>%
@@ -502,10 +502,10 @@ create_matches <- function(trimmed_pool, tm, num_matches = 1,
 ## find matches 
 matches <- create_matches(trimmed_pool, trimmed_pool$month, num_matches=1)
 
-# patients without matches - March 2023
+# patients without matches
 ptlist = matchdata %>% filter(arm==1) %>% pull(subject) %>% unique()
 ptlist[ptlist %notin% matches$arm_subject]
-# "170-06-103" "170-06-104" "170-37-004"
+# March 2023: "170-06-103" "170-06-104" "170-37-004"
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -523,9 +523,34 @@ controls <- matches %>% select(subject = control_subject,
 # create new variables
 ###############################
 
-# QUESTION: one patient was recruited at 51 months. Will he be able to complete one year on EMPRO?
+# QUESTION: one patient was recruited at 57 months. Will he be able to complete one year on EMPRO?
 ynlev2 = c(0,1)
 ynlab2 = c("No", "Yes")
+
+# shift questionnaires for controls based on matched enrollment month
+control_eortc <- proms %>%
+  rename(subject=study_id) %>%
+  mutate_at(vars(starts_with("eortc")), as.numeric) %>%
+  right_join(controls, by="subject") %>%
+  bind_cols(qlq_c30(., 'eortc_')) %>%
+  mutate(timepoint = as.numeric(ifelse(timepoint=="Baseline", 0, gsub("Month", "", timepoint)))) %>%
+  arrange(subject, timepoint, eortc_1) %>%
+  group_by(subject, timepoint) %>%
+  slice(1) %>%
+  ungroup() %>%
+  mutate(timepoint = timepoint - enrollment_month2) %>%
+  filter(timepoint %in% seq(0,12,3)) %>%
+  select(subject, timepoint, qlqtotal = QLQTOTAL) %>%
+  filter(!is.na(qlqtotal)) %>%
+  arrange(timepoint) %>%
+  pivot_wider(id_cols=subject, names_from=timepoint, values_from=qlqtotal, names_prefix = "new_eortc_") 
+
+# flag for whether patient completed each EOTRC (updated for control data)
+control_eortc_yn = control_eortc %>%
+  mutate_at(vars(starts_with("new_eortc")), not.na) %>%
+  rename_with(stringr::str_replace, 
+              pattern = "new_eortc", replacement = "new_yn_eortc", 
+              matches("new_eortc"))
 
 empro_data <- all_data %>%
   left_join(controls, by="subject") %>%
@@ -536,6 +561,20 @@ empro_data <- all_data %>%
   filter(!(subject %in% c("170-48-051", "170-48-053", "170-48-055", "170-48-058", "170-48-063", 
                           "170-48-047", "170-40-004", "170-40-033", "170-06-096", "170-06-099",
                           "170-96-014", "170-96-024", "170-96-035", "170-96-073", "170-96-076"))) %>%
+  # merge in updated EORTC data for controls and replace with current
+  left_join(control_eortc, by="subject") %>%
+  left_join(control_eortc_yn, by="subject") %>%
+  mutate(eortc_0 = ifelse(arm=="control", new_eortc_0, eortc_0),
+         eortc_3 = ifelse(arm=="control", new_eortc_3, eortc_3),
+         eortc_6 = ifelse(arm=="control", new_eortc_6, eortc_6),
+         eortc_9 = ifelse(arm=="control", new_eortc_9, eortc_9),
+         eortc_12 = ifelse(arm=="control", new_eortc_12, eortc_12),
+         yn_eortc_0 = ifelse(arm=="control", new_yn_eortc_0, yn_eortc_0),
+         yn_eortc_3 = ifelse(arm=="control", new_yn_eortc_3, yn_eortc_3),
+         yn_eortc_6 = ifelse(arm=="control", new_yn_eortc_6, yn_eortc_6),
+         yn_eortc_9 = ifelse(arm=="control", new_yn_eortc_9, yn_eortc_9),
+         yn_eortc_12 = ifelse(arm=="control", new_yn_eortc_12, yn_eortc_12)) %>%
+  select(-starts_with("new_")) %>%
   mutate(
     # combine match data (proxy controls have theoretical entry date)
     empro_cnstdate = as.Date(ifelse(is.na(empro_cnstdate), visit_date2, empro_cnstdate), 
@@ -566,18 +605,19 @@ empro_data <- all_data %>%
     self_mgmt_soft = factor(self_mgmt_soft, levels=ynlev2, labels=ynlab2),
     self_mgmt_hard = factor(self_mgmt_hard, levels=ynlev2, labels=ynlab2),
     #clinician_contact = ifelse(any_hard_trigger==0, NA, clinician_contact),
-    q_month_1 = ifelse(is.na(q_month_1) & arm=="intervention", 0, q_month_1),
-    q_month_2 = ifelse(is.na(q_month_2) & arm=="intervention", 0, q_month_2),
-    q_month_3 = ifelse(is.na(q_month_3) & arm=="intervention", 0, q_month_3),
-    q_month_4 = ifelse(is.na(q_month_4) & arm=="intervention", 0, q_month_4),
-    q_month_5 = ifelse(is.na(q_month_5) & arm=="intervention", 0, q_month_5),
-    q_month_6 = ifelse(is.na(q_month_6) & arm=="intervention", 0, q_month_6),
-    q_month_7 = ifelse(is.na(q_month_7) & arm=="intervention", 0, q_month_7),
+    # q_month_1 = ifelse(is.na(q_month_1) & arm=="intervention", 0, q_month_1),
+    # q_month_2 = ifelse(is.na(q_month_2) & arm=="intervention", 0, q_month_2),
+    # q_month_3 = ifelse(is.na(q_month_3) & arm=="intervention", 0, q_month_3),
+    # q_month_4 = ifelse(is.na(q_month_4) & arm=="intervention", 0, q_month_4),
+    # q_month_5 = ifelse(is.na(q_month_5) & arm=="intervention", 0, q_month_5),
+    # q_month_6 = ifelse(is.na(q_month_6) & arm=="intervention", 0, q_month_6),
+    # q_month_7 = ifelse(is.na(q_month_7) & arm=="intervention", 0, q_month_7),
     yn_eortc_0 = ifelse(is.na(yn_eortc_0), FALSE, yn_eortc_0),
     yn_eortc_3 = ifelse(is.na(yn_eortc_3), FALSE, yn_eortc_3),
     yn_eortc_6 = ifelse(is.na(yn_eortc_6), FALSE, yn_eortc_6),
     yn_eortc_9 = ifelse(is.na(yn_eortc_9), FALSE, yn_eortc_9),
     yn_eortc_12 = ifelse(is.na(yn_eortc_12), FALSE, yn_eortc_12)) 
+
 
 # label variables
 var_label(empro_data) <- list(
@@ -611,14 +651,14 @@ var_label(empro_data) <- list(
   any_hard_trigger = "Any hard trigger released",
   any_soft_trigger = "Any soft trigger released",
   self_mgmt_soft = "Engaged in TrueNTH self-management tool after a soft trigger was released",
-  self_mgmt_hard = "Engaged in TrueNTH self-management tool after a hard trigger was released",
-  q_month_1 = "Completed PRO-CTCAE questionnare at 1 mo",
-  q_month_2 = "Completed PRO-CTCAE questionnare at 2 mo",
-  q_month_3 = "Completed PRO-CTCAE questionnare at 3 mo",
-  q_month_4 = "Completed PRO-CTCAE questionnare at 4 mo",
-  q_month_5 = "Completed PRO-CTCAE questionnare at 5 mo",
-  q_month_6 = "Completed PRO-CTCAE questionnare at 6 mo",
-  q_month_7 = "Completed PRO-CTCAE questionnare at 7 mo")
+  self_mgmt_hard = "Engaged in TrueNTH self-management tool after a hard trigger was released")
+  # q_month_1 = "Completed PRO-CTCAE questionnare at 1 mo",
+  # q_month_2 = "Completed PRO-CTCAE questionnare at 2 mo",
+  # q_month_3 = "Completed PRO-CTCAE questionnare at 3 mo",
+  # q_month_4 = "Completed PRO-CTCAE questionnare at 4 mo",
+  # q_month_5 = "Completed PRO-CTCAE questionnare at 5 mo",
+  # q_month_6 = "Completed PRO-CTCAE questionnare at 6 mo",
+  # q_month_7 = "Completed PRO-CTCAE questionnare at 7 mo")
 
 ##Save the result for analysis 
 today_rec <- format(Sys.Date(), format="%Y%m%d")
