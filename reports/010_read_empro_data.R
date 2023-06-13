@@ -159,22 +159,60 @@ formatted$educ_data <- proms %>%
                                        "University 2 yr", "University 4 yr", 
                                        "Graduate/professional degree")))
 
+# EMPRO PROM completeness
+# function to count the not NA columns
+count_not_na_func <- function(x) sum(!is.na(x))
+formatted$proms <- empro %>%
+  rename(subject=study_id) %>%
+  mutate(visit = as.numeric(gsub("Month ", "", timepoint)),
+         # percentage of PROM questions answered
+         percent_prom_complete = 100*apply(.[paste0("ironman_ss_", 1:20)], 1, count_not_na_func)/20,
+         prom_submitted = 1) %>%
+  arrange(subject, visit) %>%
+  pivot_wider(id_cols = "subject",
+              names_from=visit,
+              values_from=c(percent_prom_complete, prom_submitted))
+
+
 # Triggers data
 # Question: how to tell if patient engaged in TrueNTH self management tool
 # Question: does clinician_status mean that they contacted the patient?
+  # function to erase soft triggers that are also hard triggers
 formatted$triggers <- qre_timeline %>%
   rename(subject=study_id) %>%
-  filter(!is.na(EMPRO_questionnaire_completion_date)) %>%
-  filter(!(is.na(soft_trigger_domains) & is.na(hard_trigger_domains))) %>%
-  mutate(soft_trigger = ifelse(!is.na(soft_trigger_domains), 1, 0),
+  # filter out empty records
+  filter(!is.na(EMPRO_questionnaire_completion_date) & status=="Completed") %>%
+  # separate soft triggers into separate variables
+  separate_wider_delim(soft_trigger_domains, ", ", names_sep = "", too_few = "align_start") %>%
+  # transpose to long
+  pivot_longer(cols = starts_with("soft_trigger_domains"),
+               names_to = "num",
+               names_prefix = "soft_trigger_domains",
+               values_to = "soft_trigger",
+               values_drop_na = TRUE) %>%
+  # replace repeated soft triggers to NA
+  rowwise() %>%
+  mutate(soft_trigger = ifelse(grepl(soft_trigger, hard_trigger_domains), NA, soft_trigger)) %>%
+  ungroup() %>%
+  # mutate back to wide
+  pivot_wider(id_cols = c(subject, visit, hard_trigger_domains, clinician_status, content_domains_accessed),
+              names_from = num,
+              names_prefix = "soft_trigger_domains", 
+              values_from = soft_trigger) %>%
+  # unite soft triggers into one column
+  unite(soft_trigger_domains, starts_with("soft_trigger_domains"), sep = ", ", na.rm=TRUE) %>%
+  mutate(soft_trigger_domains = ifelse(soft_trigger_domains=="", NA, soft_trigger_domains), 
+         # number of surveys that released a trigger 
+         soft_trigger = ifelse(!is.na(soft_trigger_domains), 1, 0),
          hard_trigger = ifelse(!is.na(hard_trigger_domains), 1, 0),
+         # number of triggers
          n_soft_trigger = ifelse(is.na(soft_trigger_domains), NA, str_count(soft_trigger_domains, ",") + 1),
          n_hard_trigger = ifelse(is.na(hard_trigger_domains), NA, str_count(hard_trigger_domains, ",") + 1),
          pain_soft_trigger = ifelse(grepl("pain", soft_trigger_domains), 1, 0),
          pain_hard_trigger = ifelse(grepl("pain", hard_trigger_domains), 1, 0),
          clinician_contact = ifelse(clinician_status=="Completed", 1, 0),
          visit = as.numeric(gsub("Month ", "", visit)),
-         hard_trigger_contact = ifelse(clinician_status=="Completed", 1, NA),
+         hard_triggers_contact = ifelse(clinician_status=="Completed", 1, NA),
          self_mgmt_soft = case_when(
            !is.na(content_domains_accessed) & soft_trigger==1 ~ 1,
            is.na(content_domains_accessed) & soft_trigger==1 ~ 0
@@ -184,13 +222,13 @@ formatted$triggers <- qre_timeline %>%
            is.na(content_domains_accessed) & hard_trigger==1 ~ 0
          )) %>% 
   select(subject, visit, clinician_contact, soft_trigger, hard_trigger, n_soft_trigger, n_hard_trigger, 
-         pain_soft_trigger, pain_hard_trigger, hard_trigger_contact, self_mgmt_soft, self_mgmt_hard) %>%
+         pain_soft_trigger, pain_hard_trigger, hard_triggers_contact, self_mgmt_soft, self_mgmt_hard) %>%
   # transpose data
   arrange(subject, visit) %>%
   pivot_wider(id_cols = "subject",
               names_from=visit,
               values_from=c(clinician_contact, soft_trigger, hard_trigger, 
-                            n_soft_trigger, n_hard_trigger, hard_trigger_contact,
+                            n_soft_trigger, n_hard_trigger, hard_triggers_contact,
                             pain_soft_trigger, pain_hard_trigger, self_mgmt_soft, self_mgmt_hard)) %>%
   mutate(n_visit_soft_trigger = select(., starts_with("soft_trigger_")) %>% rowSums(na.rm=TRUE),
          n_visit_hard_trigger = select(., starts_with("hard_trigger_")) %>% rowSums(na.rm=TRUE),
@@ -595,7 +633,9 @@ empro_data <- all_data %>%
     dead = factor(dead, levels=ynlev2, labels=ynlab2),
     pain_hard_trigger = ifelse(is.na(pain_hard_trigger) & arm=="intervention", 0, pain_hard_trigger),
     pain_hard_trigger = factor(pain_hard_trigger, levels=ynlev2, labels=ynlab2),
+    any_soft_trigger = ifelse(is.na(any_soft_trigger),0,1),
     any_soft_trigger = factor(any_soft_trigger, levels=ynlev2, labels=ynlab2), 
+    any_hard_trigger = ifelse(is.na(any_hard_trigger),0,1),
     any_hard_trigger = factor(any_hard_trigger, levels=ynlev2, labels=ynlab2),     
     n_total_soft_trigger = ifelse(is.na(n_total_soft_trigger) & arm=="intervention", 0, n_total_soft_trigger),
     n_visit_soft_trigger = ifelse(is.na(n_visit_soft_trigger) & arm=="intervention", 0, n_visit_soft_trigger),
@@ -616,7 +656,17 @@ empro_data <- all_data %>%
     yn_eortc_3 = ifelse(is.na(yn_eortc_3), FALSE, yn_eortc_3),
     yn_eortc_6 = ifelse(is.na(yn_eortc_6), FALSE, yn_eortc_6),
     yn_eortc_9 = ifelse(is.na(yn_eortc_9), FALSE, yn_eortc_9),
-    yn_eortc_12 = ifelse(is.na(yn_eortc_12), FALSE, yn_eortc_12)) 
+    yn_eortc_12 = ifelse(is.na(yn_eortc_12), FALSE, yn_eortc_12),
+    prom_submitted_1 = ifelse(is.na(prom_submitted_1),0,1),
+    prom_submitted_2 = ifelse(is.na(prom_submitted_2),0,1),
+    prom_submitted_3 = ifelse(is.na(prom_submitted_3),0,1),
+    prom_submitted_4 = ifelse(is.na(prom_submitted_4),0,1),
+    prom_submitted_5 = ifelse(is.na(prom_submitted_5),0,1),
+    prom_submitted_6 = ifelse(is.na(prom_submitted_6),0,1),
+    prom_submitted_7 = ifelse(is.na(prom_submitted_7),0,1),
+    prom_submitted_8 = ifelse(is.na(prom_submitted_8),0,1),
+    prom_submitted_9 = ifelse(is.na(prom_submitted_9),0,1),
+    prom_submitted_10 = ifelse(is.na(prom_submitted_10),0,1)) 
 
 
 # label variables
@@ -630,11 +680,11 @@ var_label(empro_data) <- list(
   enrollment_month = "Study visit at entry",
   cohort = "Study cohort",
   education = "Education level",
-  yn_eortc_0 = "EORTC QLQ-C30 completed at baseline",
-  yn_eortc_3 = "EORTC QLQ-C30 completed at 3 mo",
-  yn_eortc_6 = "EORTC QLQ-C30 completed at 6 mo",
-  yn_eortc_9 = "EORTC QLQ-C30 completed at 9 mo",
-  yn_eortc_12 = "EORTC QLQ-C30 completed at 12 mo",
+  yn_eortc_0 = "EORTC QLQ-C30 submitted at baseline",
+  yn_eortc_3 = "EORTC QLQ-C30 submitted at 3 mo",
+  yn_eortc_6 = "EORTC QLQ-C30 submitted at 6 mo",
+  yn_eortc_9 = "EORTC QLQ-C30 submitted at 9 mo",
+  yn_eortc_12 = "EORTC QLQ-C30 submitted at 12 mo",
   eortc_0 = "EORTC QLQ-C30 at baseline",
   eortc_3 = "EORTC QLQ-C30 at 3 mo",
   eortc_6 = "EORTC QLQ-C30 at 6 mo",
@@ -651,7 +701,27 @@ var_label(empro_data) <- list(
   any_hard_trigger = "Any hard trigger released",
   any_soft_trigger = "Any soft trigger released",
   self_mgmt_soft = "Engaged in TrueNTH self-management tool after a soft trigger was released",
-  self_mgmt_hard = "Engaged in TrueNTH self-management tool after a hard trigger was released")
+  self_mgmt_hard = "Engaged in TrueNTH self-management tool after a hard trigger was released",
+  percent_prom_complete_1 = "% PROMs completed at 1 mo", 
+  percent_prom_complete_2 = "% PROMs completed at 2 mo", 
+  percent_prom_complete_3 = "% PROMs completed at 3 mo", 
+  percent_prom_complete_4 = "% PROMs completed at 4 mo", 
+  percent_prom_complete_5 = "% PROMs completed at 5 mo", 
+  percent_prom_complete_6 = "% PROMs completed at 6 mo", 
+  percent_prom_complete_7 = "% PROMs completed at 7 mo", 
+  percent_prom_complete_8 = "% PROMs completed at 8 mo", 
+  percent_prom_complete_9 = "% PROMs completed at 9 mo", 
+  percent_prom_complete_10 = "% PROMs completed at 10 mo", 
+  prom_submitted_1 = "PROM submitted at 1 mo", 
+  prom_submitted_2 = "PROM submitted at 2 mo", 
+  prom_submitted_3 = "PROM submitted at 3 mo", 
+  prom_submitted_4 = "PROM submitted at 4 mo", 
+  prom_submitted_5 = "PROM submitted at 5 mo", 
+  prom_submitted_6 = "PROM submitted at 6 mo", 
+  prom_submitted_7 = "PROM submitted at 7 mo", 
+  prom_submitted_8 = "PROM submitted at 8 mo", 
+  prom_submitted_9 = "PROM submitted at 9 mo", 
+  prom_submitted_10 = "PROM submitted at 10 mo")
   # q_month_1 = "Completed PRO-CTCAE questionnare at 1 mo",
   # q_month_2 = "Completed PRO-CTCAE questionnare at 2 mo",
   # q_month_3 = "Completed PRO-CTCAE questionnare at 3 mo",

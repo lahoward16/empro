@@ -1,6 +1,6 @@
 ---
 title: "EMPRO Quarterly Report"
-author: "Morgan Paul & Lauren Howard"
+author: "Lauren Howard"
 date: "`r format(Sys.time(), '%d %B %Y')`"
 output: 
   rmdformats::downcute
@@ -8,7 +8,7 @@ knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = e
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(eval = TRUE, echo = TRUE, warning = FALSE, message = FALSE,
+knitr::opts_chunk$set(eval = TRUE, echo = FALSE, warning = FALSE, message = FALSE,
                       fig.width = 12, fig.height = 8)
 ```
 
@@ -30,17 +30,8 @@ library(flextable)
 ```
 
 ```{r readdata, echo = F, include = F}
-<<<<<<< HEAD
-# load data
-empro <- here::here("EMPRO", "EMPRO_data_20230207.RData") #set path to data file
-=======
 # load data set
-<<<<<<< HEAD
-empro <- here::here("data", "EMPRO_data_20230406.RData")
-=======
-empro <- here::here("data", "EMPRO_data_20230327.RData")
->>>>>>> 5390fa9e02c2599c0730ce2a65132b09eaa1e538
->>>>>>> 541049e800522bbb1a6677f8bf40c687de571ac8
+empro <- here::here("data", "EMPRO_data_20230613.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -57,7 +48,7 @@ The "proxy control" group is selected through propensity score methods using the
 
 Note that 12 EMPRO patients were excluded due to the TrueNTH technical bug (it seems that 4 were removed from the database or data was never entered), and an additional 4 EMPRO patients were excluded because they had no EMPRO consent date entered.
 
-There were three EMPRO patients who were not matched, but since this is an interim analysis we will continue to monitor if we have trouble matching these patients.
+There were three EMPRO patients who were not matched, but since this is an interim analysis we will continue to monitor if we have trouble matching these patients and can match with replacement if needed.
 
 ### **Table 1:** Characteristics of patients in the intervention group and proxy control group
 
@@ -76,8 +67,7 @@ empro_data %>%
          yn_eortc_0,
          yn_eortc_3,
          yn_eortc_6,
-         yn_eortc_9,
-         dead) %>%
+         yn_eortc_9) %>%
   tbl_summary(by = arm,
               missing = "ifany",
               missing_text = "N missing",
@@ -113,20 +103,13 @@ empro_data %>%
          yn_eortc_0,
          yn_eortc_3,
          yn_eortc_6,
-         yn_eortc_9,
-         eortc_0,
-         eortc_3,
-         eortc_6,
-         eortc_9,
-         dead
-         ) %>%
+         yn_eortc_9) %>%
   tbl_summary(by = site,
               missing = "ifany",
               missing_text = "N missing",
               type = all_continuous() ~ "continuous2",
               statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
                                                "{min}, {max}")) %>%
-  gtsummary::add_overall() %>%
   bold_labels() %>%
   modify_header(label = "")
 
@@ -155,31 +138,14 @@ empro_data %>%
          yn_eortc_0,
          yn_eortc_3,
          yn_eortc_6,
-         yn_eortc_9,
-         eortc_0,
-         eortc_3,
-         eortc_6,
-<<<<<<< HEAD
-         eortc_9,
-=======
-         #eortc_9, no need to show these because theyre 0.
-         #eortc_12,
->>>>>>> 541049e800522bbb1a6677f8bf40c687de571ac8
-         dead
-         ) %>%
+         yn_eortc_9) %>%
   tbl_summary(by = site,
               missing = "ifany",
               missing_text = "N missing",
               type = list(age_baseline ~ "continuous2",
-                          eortc_0 ~ "continuous2",
-                          diag_enroll ~ "continuous2",
-                          eortc_3 ~ "continuous2",
-                          eortc_6 ~ "continuous2",
-                          eortc_9 ~ "continuous2"
-                          ),
+                          diag_enroll ~ "continuous2"),
               statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
                                                "{min}, {max}")) %>%
-  gtsummary::add_overall() %>%
   bold_labels() %>%
   modify_header(label = "")
 
@@ -198,24 +164,58 @@ empro_data %>%
 empro_data %>%
   filter(arm == "intervention") %>% 
   dplyr::select(site,
-         clinician_contact,
-         self_mgmt_soft,
-         self_mgmt_hard,
+         prom_submitted_1,
+         prom_submitted_2,
+         prom_submitted_3,
+         prom_submitted_4,
+         prom_submitted_5,
+         prom_submitted_6,
+         prom_submitted_7,
+         prom_submitted_8,
+         prom_submitted_9,
+         prom_submitted_10,
+         percent_prom_complete_1,
+         percent_prom_complete_2,
+         percent_prom_complete_3,
+         percent_prom_complete_4,
+         percent_prom_complete_5,
+         percent_prom_complete_6,
+         percent_prom_complete_7,
+         percent_prom_complete_8,
+         percent_prom_complete_9,
+         percent_prom_complete_10,
          n_visit_soft_trigger,
          n_total_soft_trigger,
+         any_soft_trigger,
+         self_mgmt_soft,
          n_visit_hard_trigger,
          n_total_hard_trigger,
-         pain_hard_trigger) %>%
+         any_hard_trigger,
+         self_mgmt_hard,
+         clinician_contact) %>%
   tbl_summary(by = site,
-              missing = "ifany",
-              missing_text = "N missing",
-              type = all_continuous() ~ "continuous2",
+              missing = "no",
+              type = list(percent_prom_complete_1 ~ "continuous2",
+                          percent_prom_complete_2 ~ "continuous2",
+                          percent_prom_complete_3 ~ "continuous2",
+                          percent_prom_complete_4 ~ "continuous2",
+                          percent_prom_complete_5 ~ "continuous2",
+                          percent_prom_complete_6 ~ "continuous2",
+                          percent_prom_complete_7 ~ "continuous2",
+                          percent_prom_complete_8 ~ "continuous2",
+                          percent_prom_complete_9 ~ "continuous2",
+                          percent_prom_complete_10 ~ "continuous2",
+                          n_total_soft_trigger ~ "continuous2",
+                          n_visit_soft_trigger ~ "continuous2",
+                          n_total_hard_trigger ~ "continuous2",
+                          n_visit_hard_trigger ~ "continuous2"),
               statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
                                                "{min}, {max}"),
               digits = list(all_continuous() ~ c(0))) %>%
   gtsummary::add_overall() %>%
   bold_labels() %>%
   modify_header(label = "")
+
 
 # to output to .docx:
 # tbl %>%
