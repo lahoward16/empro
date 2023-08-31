@@ -269,12 +269,16 @@ formatted$eortc <- proms %>%
   slice(1) %>%
   ungroup() %>%
   left_join(formatted$consent_data, by="subject") %>%
-  mutate(timepoint = ifelse(!is.na(enrollment_month), timepoint - enrollment_month, timepoint)) %>%
+  mutate(timepoint = ifelse(!is.na(enrollment_month), timepoint - enrollment_month, timepoint),
+         percent_eortc_complete = 100*apply(.[paste0("eortc_", 1:30)], 1, count_not_na_func)/30) %>%
   filter(timepoint %in% seq(0,12,3)) %>%
-  select(subject, timepoint, qlqtotal = QLQTOTAL) %>%
-  filter(!is.na(qlqtotal)) %>%
+  select(subject, timepoint, eortc = QLQTOTAL, percent_eortc_complete) %>%
+  filter(!is.na(eortc)) %>%
   arrange(timepoint) %>%
-  pivot_wider(id_cols=subject, names_from=timepoint, values_from=qlqtotal, names_prefix = "eortc_") 
+  pivot_wider(id_cols=subject, 
+              names_from=timepoint, 
+              values_from=c(percent_eortc_complete, eortc)) %>%
+  mutate_at(vars(starts_with("percent_eortc_complete")), ~replace_na(.,0))
 
 # flag for whether patient completed each EOTRC
 formatted$eortc_yn = formatted$eortc %>%
@@ -557,6 +561,7 @@ controls <- matches %>% select(subject = control_subject,
   rename(enrollment_month2=enrollment_month, visit_date2=visit_date)
 
 
+
 ###############################
 # create new variables
 ###############################
@@ -576,15 +581,20 @@ control_eortc <- proms %>%
   group_by(subject, timepoint) %>%
   slice(1) %>%
   ungroup() %>%
-  mutate(timepoint = timepoint - enrollment_month2) %>%
+  mutate(timepoint = timepoint - enrollment_month2,
+         new_percent_eortc_complete = 100*apply(.[paste0("eortc_", 1:30)], 1, count_not_na_func)/30) %>%
   filter(timepoint %in% seq(0,12,3)) %>%
-  select(subject, timepoint, qlqtotal = QLQTOTAL) %>%
-  filter(!is.na(qlqtotal)) %>%
+  select(subject, timepoint, new_eortc = QLQTOTAL, new_percent_eortc_complete) %>%
+  filter(!is.na(new_eortc)) %>%
   arrange(timepoint) %>%
-  pivot_wider(id_cols=subject, names_from=timepoint, values_from=qlqtotal, names_prefix = "new_eortc_") 
+  pivot_wider(id_cols=subject, 
+              names_from=timepoint, 
+              values_from=c(new_percent_eortc_complete, new_eortc)) %>%
+  mutate_at(vars(starts_with("new_percent_eortc_complete")), ~replace_na(.,0))
 
 # flag for whether patient completed each EOTRC (updated for control data)
 control_eortc_yn = control_eortc %>%
+  select(subject, starts_with("new_eortc")) %>%
   mutate_at(vars(starts_with("new_eortc")), not.na) %>%
   rename_with(stringr::str_replace, 
               pattern = "new_eortc", replacement = "new_yn_eortc", 
@@ -607,6 +617,11 @@ empro_data <- all_data %>%
          eortc_6 = ifelse(arm=="control", new_eortc_6, eortc_6),
          eortc_9 = ifelse(arm=="control", new_eortc_9, eortc_9),
          eortc_12 = ifelse(arm=="control", new_eortc_12, eortc_12),
+         percent_eortc_complete_0 = ifelse(arm=="control", new_percent_eortc_complete_0, percent_eortc_complete_0),
+         percent_eortc_complete_3 = ifelse(arm=="control", new_percent_eortc_complete_3, percent_eortc_complete_3),
+         percent_eortc_complete_6 = ifelse(arm=="control", new_percent_eortc_complete_6, percent_eortc_complete_6),
+         percent_eortc_complete_9 = ifelse(arm=="control", new_percent_eortc_complete_9, percent_eortc_complete_9),
+         percent_eortc_complete_12 = ifelse(arm=="control", new_percent_eortc_complete_12, percent_eortc_complete_12),
          yn_eortc_0 = ifelse(arm=="control", new_yn_eortc_0, yn_eortc_0),
          yn_eortc_3 = ifelse(arm=="control", new_yn_eortc_3, yn_eortc_3),
          yn_eortc_6 = ifelse(arm=="control", new_yn_eortc_6, yn_eortc_6),
@@ -668,6 +683,21 @@ empro_data <- all_data %>%
     prom_submitted_9 = ifelse(is.na(prom_submitted_9),0,1),
     prom_submitted_10 = ifelse(is.na(prom_submitted_10),0,1)) 
 
+# which EMPRO visits a patient has completed
+visits <- empro_data %>%
+  select(subject, enrollment_month) %>%
+  left_join(medidata$cyc_date %>% select(subject, visit_date, month), by="subject", multiple="all") %>%
+  mutate(month = as.numeric(month)) %>%
+  filter((month >= enrollment_month | is.na(month)) & month!=999) %>%
+  mutate(month_on_empro = paste0("completed_month_", month - enrollment_month),
+         complete=1) %>%
+  select(subject, month_on_empro, complete) %>%
+  pivot_wider(id_cols = "subject",
+              names_from=month_on_empro,
+              values_from=complete)
+empro_data <- empro_data %>%
+  left_join(visits, by="subject")
+
 
 # label variables
 var_label(empro_data) <- list(
@@ -721,7 +751,12 @@ var_label(empro_data) <- list(
   prom_submitted_7 = "PROM submitted at 7 mo", 
   prom_submitted_8 = "PROM submitted at 8 mo", 
   prom_submitted_9 = "PROM submitted at 9 mo", 
-  prom_submitted_10 = "PROM submitted at 10 mo")
+  prom_submitted_10 = "PROM submitted at 10 mo",
+  percent_eortc_complete_0 = "% EORTC complete at baseline",
+  percent_eortc_complete_3 = "% EORTC complete at 3 mo",
+  percent_eortc_complete_6 = "% EORTC complete at 6 mo",
+  percent_eortc_complete_9 = "% EORTC complete at 9 mo",
+  percent_eortc_complete_12 = "% EORTC complete at 12 mo")
   # q_month_1 = "Completed PRO-CTCAE questionnare at 1 mo",
   # q_month_2 = "Completed PRO-CTCAE questionnare at 2 mo",
   # q_month_3 = "Completed PRO-CTCAE questionnare at 3 mo",
