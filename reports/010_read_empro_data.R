@@ -14,15 +14,9 @@ library(DescTools)
 library(rollmatch)
 library(purrr)
 
-
-#testing push
-
-
-#install.packages("purrr")
-
-# update date and export folder name
-datafolder <- "2023-02-16_EMPRO"
-datafile <- "2023-02-16_empro.RData"
+# date
+date1="2023-08-30"
+date2="2023-08-28"
 
 # load ironman package
 # devtools::install_github("tgerke/ironer", auth_token="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")
@@ -48,7 +42,7 @@ formatted = list()
 ###############################
 
 ## Load Medidata
-load(here::here("data", datafolder, datafile))
+load(here::here("data", paste0(date1, "_EMPRO"), paste0(date2, "_empro.RData")))
 
 
 ###############################
@@ -99,7 +93,7 @@ formatted$diagnosis_data <- medidata$mhdiagbx %>%
 
 # pull data from DEMOGRAPHICS table
 formatted$demo_data <- medidata$dm %>%
-  select(subject, brthdat_int)
+  select(subject, brthdat)
 
 
 # Pull out EMPRO off study info
@@ -190,7 +184,7 @@ formatted$triggers <- qre_timeline %>%
                names_prefix = "soft_trigger_domains",
                values_to = "soft_trigger",
                values_drop_na = TRUE) %>%
-  # replace repeated soft triggers to NA
+  # replace repeated soft triggers to NA (double listed in hard and soft)
   rowwise() %>%
   mutate(soft_trigger = ifelse(grepl(soft_trigger, hard_trigger_domains), NA, soft_trigger)) %>%
   ungroup() %>%
@@ -354,7 +348,7 @@ noconsent <- all_data %>% filter(arm=="intervention" & is.na(empro_cnstdate)) %>
     # race
     # education level
 matchdata1 = all_data %>%
-  select(subject, diagbx_date_int, enrollment_month, cohort_std, brthdat_int, race, education_mc, arm, empro_cnstdate) %>%
+  select(subject, diagbx_date_int, enrollment_month, cohort_std, brthdat, race, education_mc, arm, empro_cnstdate) %>%
   mutate(race_gp = case_when(race=="White / Caucasian" ~ 1,
                              race=="African / African American / Black / Black British / Caribbean" ~ 2,
                              TRUE ~ 99),
@@ -367,11 +361,11 @@ matchdata1 = all_data %>%
   filter(subject %notin% noconsent) %>%
   # note: 7 subjects are not in cyc_date table
   # unique(arm_set$subject[arm_set$subject %notin% medidata$cyc_date$subject])
-  full_join(medidata$cyc_date %>% select(subject, visit_date, month), by="subject", multiple="all") %>%
+  left_join(medidata$cyc_date %>% select(subject, visit_date, month), by="subject", multiple="all") %>%
   mutate(visit_date = as.Date(ifelse(is.na(visit_date), empro_cnstdate, visit_date), origin = "1970-01-01")) %>% 
   filter(!is.na(visit_date) | arm == "intervention") %>% 
   mutate(month = ifelse(month==999, NA, month),
-         age_visit = as.numeric(floor((visit_date - brthdat_int)/365.25)),
+         age_visit = as.numeric(floor((visit_date - brthdat)/365.25)),
          enrollment_year = year(visit_date),
          dx_to_enroll = (diagbx_date_int %--% visit_date) / months(1),
          month = as.numeric(month),
@@ -382,7 +376,13 @@ matchdata1 = all_data %>%
          month = ifelse(is.na(month), enrollment_month, month),
          enrollment_month = ifelse(is.na(enrollment_month), month, enrollment_month)
          ) %>% 
-  select(-diagbx_date_int, -brthdat_int, -race, -education_mc, -visit_date, -empro_cnstdate) %>%
+  select(-diagbx_date_int, -brthdat, -race, -education_mc, -visit_date, -empro_cnstdate) %>%
+  # 8/30/23 - this drops 2 patients in intervention arm missing cohort_std
+  # 170-20-050, 170-20-051
+  # mutate(drop = ifelse(!is.na(month) & !is.na(cohort_std) & month!=999 & !is.na(age_visit), 0, 1)) %>%
+  # group_by(subject) %>%
+  # mutate(n_per_subject = n(), n_drop = sum(drop)) %>%
+  # filter(n_per_subject==n_drop)
   filter(!is.na(month) & !is.na(cohort_std) & month!=999 & !is.na(age_visit)) %>% 
   left_join(formatted$subject_data %>% select(subject, country), by="subject") %>%
   mutate(country_std = case_when(
@@ -445,7 +445,8 @@ scored_data <- score_data(reduced_data = reduced_data,
 # Create pool of possible matches
 comparison_pool <-
   dplyr::inner_join(scored_data[scored_data$arm == 1, ],
-                    scored_data[scored_data$arm == 0, ], by = "month", multiple = "all")
+                    scored_data[scored_data$arm == 0, ], by = "month", multiple = "all",
+                    relationship = "many-to-many")
 comparison_pool$difference <-
   abs(comparison_pool$score.x - comparison_pool$score.y)
 comparison_pool <- comparison_pool %>%
@@ -536,7 +537,7 @@ create_matches <- function(trimmed_pool, tm, num_matches = 1,
     } else break  # break out of loop if comparison pool is empty
     count <- count + 1
   }
-  names(matches)[1] <- tm
+  names(matches)[1] <- "time"
   return(matches)
 }
 
@@ -548,6 +549,7 @@ matches <- create_matches(trimmed_pool, trimmed_pool$month, num_matches=1)
 ptlist = matchdata %>% filter(arm==1) %>% pull(subject) %>% unique()
 ptlist[ptlist %notin% matches$arm_subject]
 # March 2023: "170-06-103" "170-06-104" "170-37-004"
+# Aug 2023: "170-48-068" "170-48-071" "170-48-072" "170-48-073" "170-48-075"
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -634,7 +636,7 @@ empro_data <- all_data %>%
                              origin = "1970-01-01"),
     enrollment_month = ifelse(is.na(enrollment_month), enrollment_month2, enrollment_month),
     # other variables
-    age_baseline = as.numeric(floor((empro_cnstdate - brthdat_int)/365.25)),
+    age_baseline = as.numeric(floor((empro_cnstdate - brthdat)/365.25)),
     year_emp_enrollment = factor(year(empro_cnstdate)),
     year_iron_enrollment = factor(year(cnstdate)),
     race_gp = case_when(race=="White / Caucasian" ~ 1,
@@ -692,6 +694,7 @@ visits <- empro_data %>%
   mutate(month_on_empro = paste0("completed_month_", month - enrollment_month),
          complete=1) %>%
   select(subject, month_on_empro, complete) %>%
+  unique() %>%
   pivot_wider(id_cols = "subject",
               names_from=month_on_empro,
               values_from=complete)

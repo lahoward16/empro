@@ -7,6 +7,15 @@ output:
 knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("EMPRO Quarterly Report ",Sys.Date(),'.html')) })
 ---
 
+```{css, echo=FALSE}
+/* make html file wider to avoid line wrapping in tables*/
+div.main-container {
+  max-width: 1800px !important;
+  margin-left: auto;
+  margin-right: auto;
+}
+```
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(eval = TRUE, echo = FALSE, warning = FALSE, message = FALSE,
                       fig.width = 12, fig.height = 8)
@@ -31,7 +40,7 @@ library(flextable)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20230727.RData")
+empro <- here::here("data", "EMPRO_data_20230831.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -44,11 +53,11 @@ empro_data$crpc_per = empro_data$cohort != "mHSPC"
 var_label(empro_data) <- list(
   crpc_per = "Percent CRPC (vs.mHSPC)", enrollment_month1 = "Study visit at entry")
 ```
-The "proxy control" group is selected through propensity score methods using the package {rollmatch}. We matched 1:1 on country, time from diagnosis to enrollment, enrollment year, study visit at entry, disease status, age at entry, race, and education level. {rollmatch} selects the control patient as well as the theoretical entry time for the control patient to best match the patients in the intervention arm.
+The "proxy control" group is selected through propensity score methods using the package `rollmatch`. We matched 1:1 on country, time from diagnosis to enrollment, enrollment year, study visit at entry, disease status, age at entry, race, and education level. `rollmatch` selects the control patient as well as the theoretical entry time for the control patient to best match the patients in the intervention arm.
 
-Note that 12 EMPRO patients were excluded due to the TrueNTH technical bug (it seems that 4 were removed from the database or data was never entered), and an additional 4 EMPRO patients were excluded because they had no EMPRO consent date entered.
+Note that 12 EMPRO patients were excluded due to the TrueNTH technical bug (it seems that 4 were removed from the database or data was never entered), 3 EMPRO patients were excluded because they had no EMPRO consent date entered, and 2 were excluded due to missing disease state.
 
-There were three EMPRO patients who were not matched, but since this is an interim analysis we will continue to monitor if we have trouble matching these patients and can match with replacement if needed.
+There were 5 EMPRO patients who were not matched, but since this is an interim analysis we will continue to monitor if we have trouble matching these patients and can match with replacement if needed.
 
 ### **Table 1:** Characteristics of patients in the intervention group and proxy control group
 
@@ -103,17 +112,27 @@ fig_data <- empro_data %>%
                            values_to = "completed_month"),
             by=c("subject", "time")) %>%
   mutate_at(vars(starts_with("complete")), ~replace_na(.,0)) %>%
+  # last completed EORTC questionnaire (fill in for patients with missing visits in cyc_date)
+  mutate(temp = as.numeric(ifelse(complete>0, time, NA)),
+         temp = ifelse(time==0 & is.na(temp), -1, temp)) %>%
+  group_by(subject) %>%
+  mutate(last_complete = max(temp, na.rm=TRUE)) %>%
+  ungroup() %>%
+  # categorize missing pattern
   mutate(missing = case_when(
-    complete==0 & completed_month==1 ~ 3,
-    complete==0 & completed_month==0 ~ 4,
+    (complete==0 & completed_month==1) | (complete==0 & as.numeric(time) <= last_complete) ~ 3,
+    complete==0 & as.numeric(time) > last_complete  ~ 4,
     complete>0 & complete<100 ~ 2,
     complete==100 ~ 1),
-    missing = factor(missing, levels = 1:4, labels=c("Fully completed", "Partially completed", "Not completed (missing)", "Visit has not happened")),
+    missing = factor(missing, levels = 1:4, labels=c("Fully completed", 
+                                                     "Partially completed",
+                                                     "Not completed (missing)", 
+                                                     "Visit has not happened")),
          time = factor(time, levels=seq(0,12,3))) %>%
   group_by(subject) %>%
   mutate(mean = mean(complete)) %>%
   ungroup() %>%
-  arrange(arm, mean) 
+  arrange(arm, last_complete, mean) 
 fig_data2 <- fig_data %>%
   filter(arm=="control") %>%
   mutate(id = match(subject, unique(subject))) %>% 
