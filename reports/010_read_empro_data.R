@@ -15,8 +15,8 @@ library(rollmatch)
 library(purrr)
 
 # date
-date1="2023-08-30"
-date2="2023-08-28"
+date1="2023-11-17"
+date2="2023-11-17"
 
 # load ironman package
 # devtools::install_github("tgerke/ironer", auth_token="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")
@@ -550,6 +550,7 @@ ptlist = matchdata %>% filter(arm==1) %>% pull(subject) %>% unique()
 ptlist[ptlist %notin% matches$arm_subject]
 # March 2023: "170-06-103" "170-06-104" "170-37-004"
 # Aug 2023: "170-48-068" "170-48-071" "170-48-072" "170-48-073" "170-48-075"
+# Nov 2023: "170-48-071" "170-48-078" "170-56-059"
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 

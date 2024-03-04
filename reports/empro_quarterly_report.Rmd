@@ -40,7 +40,7 @@ library(flextable)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20230831.RData")
+empro <- here::here("data", "EMPRO_data_20231129.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -57,7 +57,7 @@ The "proxy control" group is selected through propensity score methods using the
 
 Note that 12 EMPRO patients were excluded due to the TrueNTH technical bug (it seems that 4 were removed from the database or data was never entered), 3 EMPRO patients were excluded because they had no EMPRO consent date entered, and 2 were excluded due to missing disease state.
 
-There were 5 EMPRO patients who were not matched, but since this is an interim analysis we will continue to monitor if we have trouble matching these patients and can match with replacement if needed.
+There were 3 EMPRO patients who were not matched (plus two who were missing disease status and excluded from matching), but since this is an interim analysis we will continue to monitor if we have trouble matching these patients and can match with replacement if needed.
 
 ### **Table 1:** Characteristics of patients in the intervention group and proxy control group
 
@@ -154,7 +154,7 @@ ggplot(fig_data2, aes(time, id, fill= missing)) +
 
 <br> <br>
 
-### **Table 2:** Characteristics of patients in the control arm, overall and by site
+### **Table 2:** Characteristics of patients in the control arm by site
 
 ```{r}
 #create demographic table of control arm by site
@@ -189,7 +189,7 @@ empro_data %>%
 
 <br> <br>
 
-### **Table 3:** Characteristics of patients in the intervention arm, overall and by site
+### **Table 3:** Characteristics of patients in the intervention arm by site
 
 ```{r}
 #create demographic table of intervention arm by site
