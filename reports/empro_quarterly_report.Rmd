@@ -3,7 +3,7 @@ title: "EMPRO Quarterly Report"
 author: "Lauren Howard"
 date: "`r format(Sys.time(), '%d %B %Y')`"
 output: 
-  rmdformats::downcute
+  html_document
 knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("EMPRO Quarterly Report ",Sys.Date(),'.html')) })
 ---
 
@@ -18,7 +18,7 @@ div.main-container {
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(eval = TRUE, echo = FALSE, warning = FALSE, message = FALSE,
-                      fig.width = 12, fig.height = 8)
+                      fig.width = 12, fig.height = 8, fig.align = 'center')
 ```
 
 ```{r}
@@ -36,11 +36,13 @@ library(gt)
 library(dplyr)
 library(gtsummary)
 library(flextable)
+library(ggconsort)
+
 ```
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20231129.RData")
+empro <- here::here("data", "EMPRO_data_20240304.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -49,15 +51,81 @@ empro_data$enrollment_month1 = factor(empro_data$enrollment_month)
 #make new variable for yes/no CRPC
 empro_data$crpc_per = empro_data$cohort != "mHSPC"
 
+# add variable for not matched
+empro_data$not_matched = ifelse(empro_data$subject %in% not_matched, 1, 0)
+
 #relabel new vars
 var_label(empro_data) <- list(
-  crpc_per = "Percent CRPC (vs.mHSPC)", enrollment_month1 = "Study visit at entry")
+  crpc_per = "Percent CRPC (vs.mHSPC)", 
+  enrollment_month1 = "Study visit at entry")
 ```
 The "proxy control" group is selected through propensity score methods using the package `rollmatch`. We matched 1:1 on country, time from diagnosis to enrollment, enrollment year, study visit at entry, disease status, age at entry, race, and education level. `rollmatch` selects the control patient as well as the theoretical entry time for the control patient to best match the patients in the intervention arm.
 
 Note that 12 EMPRO patients were excluded due to the TrueNTH technical bug (it seems that 4 were removed from the database or data was never entered), 3 EMPRO patients were excluded because they had no EMPRO consent date entered, and 2 were excluded due to missing disease state.
 
-There were 3 EMPRO patients who were not matched (plus two who were missing disease status and excluded from matching), but since this is an interim analysis we will continue to monitor if we have trouble matching these patients and can match with replacement if needed.
+The consort diagram below shows the number of EMPRO patients who were matched. Since this is an interim analysis, we will continue to monitor if we have trouble matching these patients and can match with replacement if needed. EMPRO patients missing consent date are not included in the analyses below since we cannot calculate age or other characteristics on them.
+
+### **Patient matching**
+```{r, fig.width = 7, fig.height = 5}
+# create cohorts
+study_cohorts <- 
+  empro_data %>%
+  filter(arm=="intervention") %>%
+  bind_rows(tibble(subject = noconsent)) %>%
+  cohort_start("Patients consented to EMRPO") %>%
+  # Define cohorts using named expressions --------------------
+  # Notice that you can use previously defined cohorts in subsequent steps
+  cohort_define(
+    consent_date = .full %>% filter(!is.na(empro_cnstdate)),
+    disease_cohort = consent_date %>% filter(!is.na(cohort)),
+    matched = disease_cohort %>% filter(not_matched==0),
+    # anti_join is useful for counting exclusions -------------
+    excluded = anti_join(.full, matched, by = "subject"),
+    excluded_consent_date = anti_join(.full, consent_date, by = "subject"),
+    excluded_disease_cohort = anti_join(consent_date, disease_cohort, by = "subject"),
+    excluded_matched = anti_join(disease_cohort, matched, by = "subject")
+  ) %>%
+  # Provide text labels for cohorts ---------------------------
+  cohort_label(
+    consent_date = "Consent date available",
+    disease_cohort = "Disease state available",
+    matched = "EMRPO patients with matched controls",
+    excluded = "Not matched",
+    excluded_consent_date = "No consent date",
+    excluded_disease_cohort = "No disease state",
+    excluded_matched = "No match available"
+  )
+
+# create consort diagram
+study_consort <- study_cohorts %>%
+  consort_box_add(
+    "full", 0, 50, cohort_count_adorn(study_cohorts, .full)
+  ) %>%
+  consort_box_add(
+    "exclusions", 20, 40, glue::glue(
+      '{cohort_count_adorn(study_cohorts, excluded)}<br>
+      • {cohort_count_adorn(study_cohorts, excluded_consent_date)}<br>
+      • {cohort_count_adorn(study_cohorts, excluded_disease_cohort)}<br>
+      • {cohort_count_adorn(study_cohorts, excluded_matched)}
+      ')
+  ) %>%
+  consort_box_add(
+    "matched", 0, 30, cohort_count_adorn(study_cohorts, matched)
+  ) %>%
+  consort_arrow_add(
+    end = "exclusions", end_side = "left", start_x = 0, start_y = 40
+  ) %>%
+  consort_arrow_add(
+    "full", "bottom", "matched", "top"
+  ) 
+
+study_consort %>%
+  ggplot() + 
+  geom_consort() +
+  theme_consort(margin_h = 15, margin_v = 1)
+
+```
+
 
 ### **Table 1:** Characteristics of patients in the intervention group and proxy control group
 
@@ -76,7 +144,8 @@ empro_data %>%
          yn_eortc_0,
          yn_eortc_3,
          yn_eortc_6,
-         yn_eortc_9) %>%
+         yn_eortc_9,
+         yn_eortc_12) %>%
   tbl_summary(by = arm,
               missing = "ifany",
               missing_text = "N missing",
@@ -171,7 +240,8 @@ empro_data %>%
          yn_eortc_0,
          yn_eortc_3,
          yn_eortc_6,
-         yn_eortc_9) %>%
+         yn_eortc_9,
+         yn_eortc_12) %>%
   tbl_summary(by = site,
               missing = "ifany",
               missing_text = "N missing",
@@ -206,7 +276,8 @@ empro_data %>%
          yn_eortc_0,
          yn_eortc_3,
          yn_eortc_6,
-         yn_eortc_9) %>%
+         yn_eortc_9,
+         yn_eortc_12) %>%
   tbl_summary(by = site,
               missing = "ifany",
               missing_text = "N missing",
@@ -242,6 +313,8 @@ empro_data %>%
          prom_submitted_8,
          prom_submitted_9,
          prom_submitted_10,
+         prom_submitted_11,
+         prom_submitted_12,
          percent_prom_complete_1,
          percent_prom_complete_2,
          percent_prom_complete_3,
@@ -252,6 +325,8 @@ empro_data %>%
          percent_prom_complete_8,
          percent_prom_complete_9,
          percent_prom_complete_10,
+         percent_prom_complete_11,
+         percent_prom_complete_12,
          n_visit_soft_trigger,
          n_total_soft_trigger,
          any_soft_trigger,
@@ -273,6 +348,8 @@ empro_data %>%
                           percent_prom_complete_8 ~ "continuous2",
                           percent_prom_complete_9 ~ "continuous2",
                           percent_prom_complete_10 ~ "continuous2",
+                          percent_prom_complete_11 ~ "continuous2",
+                          percent_prom_complete_12 ~ "continuous2",
                           n_total_soft_trigger ~ "continuous2",
                           n_visit_soft_trigger ~ "continuous2",
                           n_total_hard_trigger ~ "continuous2",

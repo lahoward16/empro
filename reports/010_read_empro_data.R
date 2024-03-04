@@ -15,8 +15,8 @@ library(rollmatch)
 library(purrr)
 
 # date
-date1="2023-11-17"
-date2="2023-11-17"
+date1="2024-02-15"
+date2="2024-02-15"
 
 # load ironman package
 # devtools::install_github("tgerke/ironer", auth_token="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")
@@ -356,7 +356,7 @@ matchdata1 = all_data %>%
            education_mc %in% c("less than secondary", "some secondary", "secondary school diploma") ~ 1,
            education_mc %in% c("some university", "university 2 yr", "university 4 yr") ~ 2,
            TRUE ~ 99)) %>% 
-  # note: 4 subjects have no EMPRO consent date (exclude for now)
+  # note: 3 subjects have no EMPRO consent date (exclude for now)
   # all_data %>% filter(arm=="intervention" & is.na(empro_cnstdate)) %>% pull(subject)
   filter(subject %notin% noconsent) %>%
   # note: 7 subjects are not in cyc_date table
@@ -547,10 +547,11 @@ matches <- create_matches(trimmed_pool, trimmed_pool$month, num_matches=1)
 
 # patients without matches
 ptlist = matchdata %>% filter(arm==1) %>% pull(subject) %>% unique()
-ptlist[ptlist %notin% matches$arm_subject]
+not_matched <- ptlist[ptlist %notin% matches$arm_subject]; not_matched
 # March 2023: "170-06-103" "170-06-104" "170-37-004"
 # Aug 2023: "170-48-068" "170-48-071" "170-48-072" "170-48-073" "170-48-075"
 # Nov 2023: "170-48-071" "170-48-078" "170-56-059"
+# March 2024: "170-37-041" "170-48-071" "170-48-075" "170-48-078" "170-48-080" "170-48-081"
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -746,6 +747,8 @@ var_label(empro_data) <- list(
   percent_prom_complete_8 = "% PROMs completed at 8 mo", 
   percent_prom_complete_9 = "% PROMs completed at 9 mo", 
   percent_prom_complete_10 = "% PROMs completed at 10 mo", 
+  percent_prom_complete_11 = "% PROMs completed at 11 mo", 
+  percent_prom_complete_12 = "% PROMs completed at 12 mo", 
   prom_submitted_1 = "PROM submitted at 1 mo", 
   prom_submitted_2 = "PROM submitted at 2 mo", 
   prom_submitted_3 = "PROM submitted at 3 mo", 
@@ -756,6 +759,8 @@ var_label(empro_data) <- list(
   prom_submitted_8 = "PROM submitted at 8 mo", 
   prom_submitted_9 = "PROM submitted at 9 mo", 
   prom_submitted_10 = "PROM submitted at 10 mo",
+  prom_submitted_11 = "PROM submitted at 11 mo", 
+  prom_submitted_12 = "PROM submitted at 12 mo",
   percent_eortc_complete_0 = "% EORTC complete at baseline",
   percent_eortc_complete_3 = "% EORTC complete at 3 mo",
   percent_eortc_complete_6 = "% EORTC complete at 6 mo",
@@ -772,7 +777,7 @@ var_label(empro_data) <- list(
 ##Save the result for analysis 
 today_rec <- format(Sys.Date(), format="%Y%m%d")
 savfile<-here::here("data", paste0("EMPRO_data_", today_rec, ".RData"))
-save(empro_data,file= savfile)
+save(empro_data, not_matched, noconsent, file= savfile)
 tools::md5sum(savfile)
 
     
