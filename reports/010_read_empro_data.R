@@ -15,8 +15,8 @@ library(rollmatch)
 library(purrr)
 
 # date
-date1="2024-02-15"
-date2="2024-02-15"
+date1="2024-06-10"
+date2="2024-06-10"
 
 # load ironman package
 # devtools::install_github("tgerke/ironer", auth_token="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")
@@ -152,6 +152,7 @@ formatted$educ_data <- proms %>%
                                        "Secondary school diploma", "Some university",
                                        "University 2 yr", "University 4 yr", 
                                        "Graduate/professional degree")))
+
 
 # EMPRO PROM completeness
 # function to count the not NA columns
@@ -552,6 +553,7 @@ not_matched <- ptlist[ptlist %notin% matches$arm_subject]; not_matched
 # Aug 2023: "170-48-068" "170-48-071" "170-48-072" "170-48-073" "170-48-075"
 # Nov 2023: "170-48-071" "170-48-078" "170-56-059"
 # March 2024: "170-37-041" "170-48-071" "170-48-075" "170-48-078" "170-48-080" "170-48-081"
+# June 2024: "170-20-052" "170-48-071" "170-48-080" "170-48-081" "170-56-081" "170-56-082"
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -685,7 +687,9 @@ empro_data <- all_data %>%
     prom_submitted_7 = ifelse(is.na(prom_submitted_7),0,1),
     prom_submitted_8 = ifelse(is.na(prom_submitted_8),0,1),
     prom_submitted_9 = ifelse(is.na(prom_submitted_9),0,1),
-    prom_submitted_10 = ifelse(is.na(prom_submitted_10),0,1)) 
+    prom_submitted_10 = ifelse(is.na(prom_submitted_10),0,1),
+    prom_submitted_11 = ifelse(is.na(prom_submitted_11),0,1),
+    prom_submitted_12 = ifelse(is.na(prom_submitted_12),0,1)) 
 
 # which EMPRO visits a patient has completed
 visits <- empro_data %>%
