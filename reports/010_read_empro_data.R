@@ -305,38 +305,15 @@ all_data <- all_data %>%
          "170-48-047", "170-40-004", "170-40-033", "170-06-096", "170-06-099",
          "170-96-014", "170-96-024", "170-96-035", "170-96-073", "170-96-076")))
 
-# patient "170-48-056" 3 month survey data was deleted
-
-# These patients are in the subject table (arm=intervention) but not in the match
-# data, i.e. missing critical data somewhere.
-# "170-06-096" - bug
-# "170-06-099" - bug
-# "170-40-004" - bug
-# "170-40-033" - bug
-# "170-48-047" - bug
-# "170-48-051" - bug
-# "170-48-053" - bug
-# "170-48-055" - bug
-# "170-48-058" - bug
-# "170-48-063" - bug
-# "170-96-006" - no EMPRO consent date
-# "170-96-014" - bug
-# "170-96-023" - no EMPRO consent date
-# "170-96-024" - bug
-# "170-96-035" - bug
-# "170-96-038" - no EMPRO consent date
-# "170-96-048" - not in cyc_date table; was able to add back in
-# "170-96-073" - bug
-# "170-96-074" - not in cyc_date table; was able to add back in
-# "170-96-076" - bug
-# "170-96-078" - not in cyc_date table; was able to add back in
-
 ###############################
 # select control group
 ###############################
 
 # subjects have no EMPRO consent date (exclude for now)
 noconsent <- all_data %>% filter(arm=="intervention" & is.na(empro_cnstdate)) %>% pull(subject)
+
+# subjects recruited after 45 months (exclude)
+lateenroll <- all_data %>% filter(arm=="intervention" & enrollment_month>45) %>% pull(subject)
 
 
 # match on:
@@ -357,9 +334,10 @@ matchdata1 = all_data %>%
            education_mc %in% c("less than secondary", "some secondary", "secondary school diploma") ~ 1,
            education_mc %in% c("some university", "university 2 yr", "university 4 yr") ~ 2,
            TRUE ~ 99)) %>% 
-  # note: 3 subjects have no EMPRO consent date (exclude for now)
-  # all_data %>% filter(arm=="intervention" & is.na(empro_cnstdate)) %>% pull(subject)
+  # subjects missing EMPRO consent date
   filter(subject %notin% noconsent) %>%
+  # subject with late enrollment (>45 months) 
+  filter(subject %notin% lateenroll) %>%
   # note: 7 subjects are not in cyc_date table
   # unique(arm_set$subject[arm_set$subject %notin% medidata$cyc_date$subject])
   left_join(medidata$cyc_date %>% select(subject, visit_date, month), by="subject", multiple="all") %>%
@@ -554,6 +532,7 @@ not_matched <- ptlist[ptlist %notin% matches$arm_subject]; not_matched
 # Nov 2023: "170-48-071" "170-48-078" "170-56-059"
 # March 2024: "170-37-041" "170-48-071" "170-48-075" "170-48-078" "170-48-080" "170-48-081"
 # June 2024: "170-20-052" "170-48-071" "170-48-080" "170-48-081" "170-56-081" "170-56-082"
+# June 2024 v2: "170-20-052" "170-37-041" "170-37-045" "170-48-071" "170-48-080" "170-56-081" "170-56-082"
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -609,12 +588,10 @@ control_eortc_yn = control_eortc %>%
 empro_data <- all_data %>%
   left_join(controls, by="subject") %>%
   filter(arm=="intervention" | match ==1) %>%
-  # note: 3 subjects have no EMPRO consent date (exclude for now)
-  filter(subject %notin% noconsent) %>%
-  # technical bug 
-  filter(!(subject %in% c("170-48-051", "170-48-053", "170-48-055", "170-48-058", "170-48-063", 
-                          "170-48-047", "170-40-004", "170-40-033", "170-06-096", "170-06-099",
-                          "170-96-014", "170-96-024", "170-96-035", "170-96-073", "170-96-076"))) %>%
+  # # subjects missing EMPRO consent date
+  # filter(subject %notin% noconsent) %>%
+  # # subject with late enrollment (>45 months) 
+  # filter(subject %notin% lateenroll) %>%
   # merge in updated EORTC data for controls and replace with current
   left_join(control_eortc, by="subject") %>%
   left_join(control_eortc_yn, by="subject") %>%
@@ -781,7 +758,7 @@ var_label(empro_data) <- list(
 ##Save the result for analysis 
 today_rec <- format(Sys.Date(), format="%Y%m%d")
 savfile<-here::here("data", paste0("EMPRO_data_", today_rec, ".RData"))
-save(empro_data, not_matched, noconsent, file= savfile)
+save(empro_data, not_matched, noconsent, lateenroll, file= savfile)
 tools::md5sum(savfile)
 
     

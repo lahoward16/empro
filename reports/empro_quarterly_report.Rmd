@@ -42,7 +42,7 @@ library(ggconsort)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20240614.RData")
+empro <- here::here("data", "EMPRO_data_20240705.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -58,12 +58,19 @@ empro_data$not_matched = ifelse(empro_data$subject %in% not_matched, 1, 0)
 var_label(empro_data) <- list(
   crpc_per = "Percent CRPC (vs.mHSPC)", 
   enrollment_month1 = "Study visit at entry")
+
+# analysis data set (remove exclusions)
+analysis_data <- empro_data %>% 
+  filter(!is.na(empro_cnstdate) & enrollment_month<=45) %>%
+  mutate(enrollment_month1 = fct_drop(enrollment_month1)) %>%
+  set_variable_labels(enrollment_month1 = "Study visit at entry")
+
 ```
 The "proxy control" group is selected through propensity score methods using the package `rollmatch`. We matched 1:1 on country, time from diagnosis to enrollment, enrollment year, study visit at entry, disease status, age at entry, race, and education level. `rollmatch` selects the control patient as well as the theoretical entry time for the control patient to best match the patients in the intervention arm.
 
-Note that 12 EMPRO patients were excluded due to the TrueNTH technical bug (it seems that 4 were removed from the database or data was never entered), 3 EMPRO patients were excluded because they had no EMPRO consent date entered, and 2 were excluded due to missing disease state.
+Note that 15 EMPRO patients were excluded due to the TrueNTH technical bug and they are removed from the initial box in the consort diagram.
 
-The consort diagram below shows the number of EMPRO patients who were matched. Since this is an interim analysis, we will continue to monitor if we have trouble matching these patients and can match with replacement if needed. EMPRO patients missing consent date are not included in the analyses below since we cannot calculate age or other characteristics on them.
+The consort diagram below shows the number of EMPRO patients who were matched. Since this is an interim analysis, we will continue to monitor if we have trouble matching these patients and can match with replacement if needed. EMPRO patients missing consent date are not included in the analyses below since we cannot calculate age or other characteristics on them. Patients must be enrolled in EMPRO before or at their Month 45 visit for IRONMAN so ensure they can complete study follow-ups.
 
 ### **Patient matching**
 ```{r, fig.width = 7, fig.height = 5}
@@ -71,29 +78,32 @@ The consort diagram below shows the number of EMPRO patients who were matched. S
 study_cohorts <- 
   empro_data %>%
   filter(arm=="intervention") %>%
-  bind_rows(tibble(subject = noconsent)) %>%
   cohort_start("Patients consented to EMRPO") %>%
   # Define cohorts using named expressions --------------------
   # Notice that you can use previously defined cohorts in subsequent steps
   cohort_define(
     consent_date = .full %>% filter(!is.na(empro_cnstdate)),
     disease_cohort = consent_date %>% filter(!is.na(cohort)),
-    matched = disease_cohort %>% filter(not_matched==0),
+    enroll = disease_cohort %>% filter(enrollment_month<=45),
+    matched = enroll %>% filter(not_matched==0),
     # anti_join is useful for counting exclusions -------------
-    excluded = anti_join(.full, matched, by = "subject"),
+    excluded = anti_join(.full, enroll, by = "subject"),
     excluded_consent_date = anti_join(.full, consent_date, by = "subject"),
     excluded_disease_cohort = anti_join(consent_date, disease_cohort, by = "subject"),
-    excluded_matched = anti_join(disease_cohort, matched, by = "subject")
+    excluded_enroll = anti_join(disease_cohort, enroll, by = "subject"),
+    not_matched = anti_join(enroll, matched, by = "subject")
   ) %>%
   # Provide text labels for cohorts ---------------------------
   cohort_label(
     consent_date = "Consent date available",
     disease_cohort = "Disease state available",
+    enroll = "Eligible for matching",
     matched = "EMRPO patients with matched controls",
-    excluded = "Not matched",
+    excluded = "Exclusions",
     excluded_consent_date = "No consent date",
     excluded_disease_cohort = "No disease state",
-    excluded_matched = "No match available"
+    excluded_enroll = "Late EMPRO enrollment",
+    not_matched = "No match available"
   )
 
 # create consort diagram
@@ -106,17 +116,29 @@ study_consort <- study_cohorts %>%
       '{cohort_count_adorn(study_cohorts, excluded)}<br>
       • {cohort_count_adorn(study_cohorts, excluded_consent_date)}<br>
       • {cohort_count_adorn(study_cohorts, excluded_disease_cohort)}<br>
-      • {cohort_count_adorn(study_cohorts, excluded_matched)}
+      • {cohort_count_adorn(study_cohorts, excluded_enroll)}
       ')
   ) %>%
   consort_box_add(
-    "matched", 0, 30, cohort_count_adorn(study_cohorts, matched)
+    "enroll", 0, 30, cohort_count_adorn(study_cohorts, enroll)
+  ) %>%
+  consort_box_add(
+    "not_matched", 20, 20, cohort_count_adorn(study_cohorts, not_matched)
+  ) %>%
+  consort_box_add(
+    "matched", 0, 10, cohort_count_adorn(study_cohorts, matched)
   ) %>%
   consort_arrow_add(
     end = "exclusions", end_side = "left", start_x = 0, start_y = 40
   ) %>%
   consort_arrow_add(
-    "full", "bottom", "matched", "top"
+    end = "not_matched", end_side = "left", start_x = 0, start_y = 20
+  ) %>%
+  consort_arrow_add(
+    "full", "bottom", "enroll", "top"
+  ) %>%
+  consort_arrow_add(
+    "enroll", "bottom", "matched", "top"
   ) 
 
 study_consort %>%
@@ -131,7 +153,7 @@ study_consort %>%
 
 ```{r}
 #create demographic table by invention and control (arm variable = groups)
-empro_data %>%
+analysis_data %>%
   dplyr::select(arm,
          country,
          age_baseline,
@@ -167,13 +189,13 @@ empro_data %>%
 
 ### **Figure 1:** Completeness of EORTC-QLQ30 questionnaire at each study time point
 ```{r}
-fig_data <- empro_data %>%
+fig_data <- analysis_data %>%
   select(subject, arm, starts_with("percent_eortc_complete")) %>%
   pivot_longer(cols = starts_with("percent_eortc_complete"),
                names_to = "time",
                names_prefix = "percent_eortc_complete_",
                values_to = "complete") %>%
-  left_join(empro_data %>%
+  left_join(analysis_data %>%
               select(subject, starts_with("completed_month")) %>%
               pivot_longer(cols = starts_with("completed_month"),
                            names_to = "time",
@@ -227,7 +249,7 @@ ggplot(fig_data2, aes(time, id, fill= missing)) +
 
 ```{r}
 #create demographic table of control arm by site
-empro_data %>%
+analysis_data %>%
   filter(arm == "control") %>% 
   dplyr::select(site,
          age_baseline,
@@ -263,7 +285,7 @@ empro_data %>%
 
 ```{r}
 #create demographic table of intervention arm by site
-empro_data %>%
+analysis_data %>%
   filter(arm == "intervention") %>% 
   dplyr::select(site,
          age_baseline,
@@ -300,7 +322,7 @@ empro_data %>%
 
 ```{r}
 #create table of secondary outcomes for intervention arm by site
-empro_data %>%
+analysis_data %>%
   filter(arm == "intervention") %>% 
   dplyr::select(site,
          prom_submitted_1,
