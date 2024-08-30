@@ -163,11 +163,7 @@ analysis_data %>%
          enrollment_month1,
          crpc_per,
          education,
-         yn_eortc_0,
-         yn_eortc_3,
-         yn_eortc_6,
-         yn_eortc_9,
-         yn_eortc_12) %>%
+         starts_with("yn_eortc")) %>%
   tbl_summary(by = arm,
               missing = "ifany",
               missing_text = "N missing",
