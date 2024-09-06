@@ -13,10 +13,11 @@ library(stringr)
 library(DescTools)
 library(rollmatch)
 library(purrr)
+library(readxl)
 
 # date
-date1="2024-06-10"
-date2="2024-06-10"
+date1="2024-08-19"
+date2="2024-08-19"
 
 # load ironman package
 # devtools::install_github("tgerke/ironer", auth_token="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")
@@ -44,6 +45,25 @@ formatted = list()
 ## Load Medidata
 load(here::here("data", paste0(date1, "_EMPRO"), paste0(date2, "_empro.RData")))
 
+trigreport <- read_xlsx(here("data", paste0(date1, "_EMPRO"), "EMPRO-2024-07-trigger-bug-analysis.xlsx")) %>% 
+  rename(user_id = "Tnth\nID",
+         visit = "Visit\nMonth",
+         empro_completed = "EMPRO\nrecorded",
+         email_sent = "\"View your\nIRONMAN EMPRO\nreport and \nget support\"\nemail sent",
+         soft_trigger = "Soft\nTrigger",
+         hard_trigger = "Hard\nTrigger",
+         soft_or_hard_trigger = "Either Soft\nor Hard\nTrigger",
+         self_mgmt_before_email = "Tailored\ncontent \naccessed\nprior\nto email",
+         self_mgmt_after_email = "Tailored\ncontent \naccessed\nafter \nemail\nsent",
+         after_bug = "Qnr\npost\nbugfix") %>%
+  mutate(soft_trigger = ifelse(!is.na(soft_trigger), 1, 0),
+         hard_trigger = ifelse(!is.na(hard_trigger), 1, 0),
+         soft_or_hard_trigger = as.numeric(soft_or_hard_trigger),
+         self_mgmt_before_email = ifelse(!is.na(self_mgmt_before_email), 1, 0),
+         self_mgmt_after_email = ifelse(!is.na(self_mgmt_after_email), 1, 0),
+         after_bug = ifelse(!is.na(after_bug), 1, 0)) %>%
+  select(user_id, visit, empro_completed, email_sent, soft_trigger, hard_trigger, 
+         soft_or_hard_trigger, self_mgmt_before_email, self_mgmt_after_email, after_bug)
 
 ###############################
 # pull out data elements 
@@ -169,6 +189,101 @@ formatted$proms <- empro %>%
               values_from=c(percent_prom_complete, prom_submitted))
 
 
+# Trigger data - long format 
+ynlev2 = c(0,1)
+ynlab2 = c("No", "Yes")
+triggers_long <- qre_timeline %>%
+  rename(subject=study_id) %>%
+  # filter out empty records
+  filter(!is.na(EMPRO_questionnaire_completion_date) & status=="Completed") %>%
+  # separate soft and hard triggers into separate variables for each domain
+  mutate(soft_anxious = ifelse(grepl("anxious", soft_trigger_domains) & !grepl("anxious", hard_trigger_domains), 1, 0),
+         soft_discouraged = ifelse(grepl("discouraged", soft_trigger_domains) & !grepl("discouraged", hard_trigger_domains), 1, 0),
+         soft_fatigue = ifelse(grepl("fatigue", soft_trigger_domains) & !grepl("fatigue", hard_trigger_domains), 1, 0),
+         soft_general_pain = ifelse(grepl("general_pain", soft_trigger_domains) & !grepl("general_pain", hard_trigger_domains), 1, 0),
+         soft_insomnia = ifelse(grepl("insomnia", soft_trigger_domains) & !grepl("insomnia", hard_trigger_domains), 1, 0),
+         soft_joint_pain = ifelse(grepl("joint_pain", soft_trigger_domains) & !grepl("joint_pain", hard_trigger_domains), 1, 0),
+         soft_sad = ifelse(grepl("sad", soft_trigger_domains) & !grepl("sad", hard_trigger_domains), 1, 0),
+         soft_social_isolation = ifelse(grepl("social_isolation", soft_trigger_domains) & 
+                                          !grepl("social_isolation", hard_trigger_domains), 1, 0),
+         hard_anxious = ifelse(grepl("anxious", hard_trigger_domains), 1, 0),
+         hard_discouraged = ifelse(grepl("discouraged", hard_trigger_domains), 1, 0),
+         hard_fatigue = ifelse(grepl("fatigue", hard_trigger_domains), 1, 0),
+         hard_general_pain = ifelse(grepl("general_pain", hard_trigger_domains), 1, 0),
+         hard_insomnia = ifelse(grepl("insomnia", hard_trigger_domains), 1, 0),
+         hard_joint_pain = ifelse(grepl("joint_pain", hard_trigger_domains), 1, 0),
+         hard_sad = ifelse(grepl("sad", hard_trigger_domains), 1, 0),
+         hard_social_isolation = ifelse(grepl("social_isolation", hard_trigger_domains), 1, 0),
+         # extract date
+         q_date = as.Date(as.POSIXct(EMPRO_questionnaire_completion_date, format = "%d-%b-%Y %H:%M:%S"))) %>%
+  left_join(trigreport, by = c("user_id", "visit")) %>%
+  # clean up variables
+  mutate(soft_trigger = case_when(
+    is.na(soft_trigger) & soft_anxious + soft_discouraged + soft_fatigue + soft_general_pain +
+      soft_insomnia + soft_joint_pain + soft_sad + soft_social_isolation ==0 ~ 0,
+    is.na(soft_trigger) & soft_anxious + soft_discouraged + soft_fatigue + soft_general_pain +
+      soft_insomnia + soft_joint_pain + soft_sad + soft_social_isolation >0  ~ 1,
+    TRUE ~ soft_trigger),
+    hard_trigger = case_when(
+      is.na(hard_trigger) & hard_anxious + hard_discouraged + hard_fatigue + hard_general_pain +
+        hard_insomnia + hard_joint_pain + hard_sad + hard_social_isolation ==0 ~ 0,
+      is.na(hard_trigger) & hard_anxious + hard_discouraged + hard_fatigue + hard_general_pain +
+        hard_insomnia + hard_joint_pain + hard_sad + hard_social_isolation >0  ~ 1,
+      TRUE ~ hard_trigger),
+    soft_or_hard_trigger = ifelse(soft_trigger==1 | hard_trigger==1, 1, 0),
+    soft_anxious = factor(soft_anxious, levels = ynlev2, labels = ynlab2),
+    soft_discouraged = factor(soft_discouraged, levels = ynlev2, labels = ynlab2),
+    soft_fatigue = factor(soft_fatigue, levels = ynlev2, labels = ynlab2),
+    soft_general_pain = factor(soft_general_pain, levels = ynlev2, labels = ynlab2),
+    soft_insomnia = factor(soft_insomnia, levels = ynlev2, labels = ynlab2),
+    soft_joint_pain = factor(soft_joint_pain, levels = ynlev2, labels = ynlab2),
+    soft_sad = factor(soft_sad, levels = ynlev2, labels = ynlab2),
+    soft_social_isolation = factor(soft_social_isolation, levels = ynlev2, labels = ynlab2),
+    hard_anxious = factor(hard_anxious, levels = ynlev2, labels = ynlab2),
+    hard_discouraged = factor(hard_discouraged, levels = ynlev2, labels = ynlab2),
+    hard_fatigue = factor(hard_fatigue, levels = ynlev2, labels = ynlab2),
+    hard_general_pain = factor(hard_general_pain, levels = ynlev2, labels = ynlab2),
+    hard_insomnia = factor(hard_insomnia, levels = ynlev2, labels = ynlab2),
+    hard_joint_pain = factor(hard_joint_pain, levels = ynlev2, labels = ynlab2),
+    hard_sad = factor(hard_sad, levels = ynlev2, labels = ynlab2),
+    hard_social_isolation = factor(hard_social_isolation, levels = ynlev2, labels = ynlab2),
+    soft_trigger = factor(soft_trigger, levels = ynlev2, labels = ynlab2),
+    hard_trigger = factor(hard_trigger, levels = ynlev2, labels = ynlab2),
+    soft_or_hard_trigger = factor(soft_or_hard_trigger, levels = ynlev2, labels = ynlab2),
+    self_mgmt = ifelse(self_mgmt_before_email==1 | self_mgmt_after_email==1, 1, 0),
+    self_mgmt_before_email = factor(self_mgmt_before_email, levels = ynlev2, labels = ynlab2),
+    self_mgmt_after_email = factor(self_mgmt_after_email, levels = ynlev2, labels = ynlab2),
+    self_mgmt = factor(self_mgmt, levels = ynlev2, labels = ynlab2),
+    after_bug = case_when(
+      is.na(after_bug) & q_date < ymd("2024-07-21") ~ 0,
+      is.na(after_bug) & q_date >= ymd("2024-07-21") ~ 1,
+      TRUE ~ after_bug),
+    after_bug = factor(after_bug, levels = ynlev2, labels = ynlab2)) %>%
+  set_variable_labels(soft_anxious = "Anxious",
+                      soft_discouraged = "Discouraged",
+                      soft_fatigue = "Fatigue",
+                      soft_general_pain = "General pain",
+                      soft_insomnia = "Insomnia",
+                      soft_joint_pain = "Joint pain",
+                      soft_sad = "Sad",
+                      soft_social_isolation = "Social Isolation",
+                      hard_anxious = "Anxious",
+                      hard_discouraged = "Discouraged",
+                      hard_fatigue = "Fatigue",
+                      hard_general_pain = "General pain",
+                      hard_insomnia = "Insomnia",
+                      hard_joint_pain = "Joint pain",
+                      hard_sad = "Sad",
+                      hard_social_isolation = "Social Isolation",                      
+                      soft_trigger = "Any soft trigger",
+                      hard_trigger = "Any hard trigger",
+                      soft_or_hard_trigger = "Any soft or hard trigger",
+                      self_mgmt_before_email = "Accessed self management before email",
+                      self_mgmt_after_email = "Accessed self management after email",
+                      self_mgmt = "Accessed self management",
+                      after_bug = "Survey occurred after bug fix")
+
+
 # Triggers data
 # Question: how to tell if patient engaged in TrueNTH self management tool
 # Question: does clinician_status mean that they contacted the patient?
@@ -236,6 +351,19 @@ formatted$triggers <- qre_timeline %>%
          any_soft_trigger = ifelse(n_total_soft_trigger>0, 1, 0),
          self_mgmt_soft = ifelse(select(., starts_with("self_mgmt_soft")) %>% rowSums(na.rm=TRUE) > 0, 1, 0),
          self_mgmt_hard = ifelse(select(., starts_with("self_mgmt_hard")) %>% rowSums(na.rm=TRUE) > 0, 1, 0))
+
+# Last questionnaire completed
+formatted$last_q <- qre_timeline %>%
+  rename(subject=study_id) %>%
+  # filter out empty records
+  filter(!is.na(EMPRO_questionnaire_completion_date) & status=="Completed") %>%
+  # choose last record for each patient
+  mutate(last_empro_q = as.numeric(gsub("Month ", "", visit))) %>%
+  arrange(subject, desc(last_empro_q)) %>% 
+  group_by(subject) %>%
+  slice(1) %>%
+  select(subject, last_empro_q)
+  
 
 # completed questionnaires
 # NOTE: this is not shifted based on enrollment month
@@ -533,6 +661,7 @@ not_matched <- ptlist[ptlist %notin% matches$arm_subject]; not_matched
 # March 2024: "170-37-041" "170-48-071" "170-48-075" "170-48-078" "170-48-080" "170-48-081"
 # June 2024: "170-20-052" "170-48-071" "170-48-080" "170-48-081" "170-56-081" "170-56-082"
 # June 2024 v2: "170-20-052" "170-37-041" "170-37-045" "170-48-071" "170-48-080" "170-56-081" "170-56-082"
+# Sept 2024: "170-37-031" "170-37-041" "170-37-045" "170-37-046" "170-37-047" "170-37-048" "170-48-071" "170-48-078" "170-48-080" "170-48-081" "170-48-083" "170-48-085"
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -666,7 +795,12 @@ empro_data <- all_data %>%
     prom_submitted_9 = ifelse(is.na(prom_submitted_9),0,1),
     prom_submitted_10 = ifelse(is.na(prom_submitted_10),0,1),
     prom_submitted_11 = ifelse(is.na(prom_submitted_11),0,1),
-    prom_submitted_12 = ifelse(is.na(prom_submitted_12),0,1)) 
+    prom_submitted_12 = ifelse(is.na(prom_submitted_12),0,1),
+    off_study = case_when(
+      !is.na(suboffstudyreason) & arm=="intervention" ~ 1,
+      is.na(suboffstudyreason) & arm=="intervention" ~ 0,
+      TRUE ~ NA),
+    remaining_q = ifelse(off_study==1, 0, 12-last_empro_q)) 
 
 # which EMPRO visits a patient has completed
 visits <- empro_data %>%
@@ -758,7 +892,7 @@ var_label(empro_data) <- list(
 ##Save the result for analysis 
 today_rec <- format(Sys.Date(), format="%Y%m%d")
 savfile<-here::here("data", paste0("EMPRO_data_", today_rec, ".RData"))
-save(empro_data, not_matched, noconsent, lateenroll, file= savfile)
+save(empro_data, not_matched, noconsent, lateenroll, triggers_long, file= savfile)
 tools::md5sum(savfile)
 
     

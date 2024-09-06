@@ -3,7 +3,8 @@ title: "EMPRO Quarterly Report"
 author: "Lauren Howard"
 date: "`r format(Sys.time(), '%d %B %Y')`"
 output: 
-  html_document
+  html_document:
+    number_sections: true
 knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("EMPRO Quarterly Report ",Sys.Date(),'.html')) })
 ---
 
@@ -42,7 +43,7 @@ library(ggconsort)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20240705.RData")
+empro <- here::here("data", "EMPRO_data_20240906.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -61,18 +62,20 @@ var_label(empro_data) <- list(
 
 # analysis data set (remove exclusions)
 analysis_data <- empro_data %>% 
-  filter(!is.na(empro_cnstdate) & enrollment_month<=45) %>%
+  filter(!is.na(empro_cnstdate) & enrollment_month<=45 & !is.na(cohort)) %>%
   mutate(enrollment_month1 = fct_drop(enrollment_month1)) %>%
   set_variable_labels(enrollment_month1 = "Study visit at entry")
 
 ```
-The "proxy control" group is selected through propensity score methods using the package `rollmatch`. We matched 1:1 on country, time from diagnosis to enrollment, enrollment year, study visit at entry, disease status, age at entry, race, and education level. `rollmatch` selects the control patient as well as the theoretical entry time for the control patient to best match the patients in the intervention arm.
 
-Note that 15 EMPRO patients were excluded due to the TrueNTH technical bug and they are removed from the initial box in the consort diagram.
+The "proxy control" group is selected through propensity score methods using the package `rollmatch`. We matched 1:1 on country, time from diagnosis to enrollment, enrollment year, study visit at entry, disease status, age at entry, race, and education level. `rollmatch` selects the control participant as well as the theoretical entry time for the control participant to best match the participants in the intervention arm.
 
-The consort diagram below shows the number of EMPRO patients who were matched. Since this is an interim analysis, we will continue to monitor if we have trouble matching these patients and can match with replacement if needed. EMPRO patients missing consent date are not included in the analyses below since we cannot calculate age or other characteristics on them. Patients must be enrolled in EMPRO before or at their Month 45 visit for IRONMAN so ensure they can complete study follow-ups.
+Note that 15 EMPRO participants were excluded due to the TrueNTH technical bug and they are removed from the initial box in the consort diagram.
 
-### **Patient matching**
+The consort diagram below shows the number of EMPRO participants who were matched. Since this is an interim analysis, we will continue to monitor if we have trouble matching these participants and can match with replacement if needed. EMPRO participants missing consent date are not included in the analyses below since we cannot calculate age or other characteristics on them. Patients must be enrolled in EMPRO before or at their Month 45 visit for IRONMAN so ensure they can complete study follow-ups.
+
+# Patient matching
+
 ```{r, fig.width = 7, fig.height = 5}
 # create cohorts
 study_cohorts <- 
@@ -98,7 +101,7 @@ study_cohorts <-
     consent_date = "Consent date available",
     disease_cohort = "Disease state available",
     enroll = "Eligible for matching",
-    matched = "EMRPO patients with matched controls",
+    matched = "EMRPO participants with matched controls",
     excluded = "Exclusions",
     excluded_consent_date = "No consent date",
     excluded_disease_cohort = "No disease state",
@@ -148,8 +151,7 @@ study_consort %>%
 
 ```
 
-
-### **Table 1:** Characteristics of patients in the intervention group and proxy control group
+# Characteristics of participants in the intervention group and proxy control group
 
 ```{r}
 #create demographic table by invention and control (arm variable = groups)
@@ -180,10 +182,10 @@ analysis_data %>%
 #   flextable::save_as_docx()
 ```
 
-
 <br> <br>
 
-### **Figure 1:** Completeness of EORTC-QLQ30 questionnaire at each study time point
+# Completeness of EORTC-QLQ30 questionnaire at each study time point
+
 ```{r}
 fig_data <- analysis_data %>%
   select(subject, arm, starts_with("percent_eortc_complete")) %>%
@@ -199,7 +201,7 @@ fig_data <- analysis_data %>%
                            values_to = "completed_month"),
             by=c("subject", "time")) %>%
   mutate_at(vars(starts_with("complete")), ~replace_na(.,0)) %>%
-  # last completed EORTC questionnaire (fill in for patients with missing visits in cyc_date)
+  # last completed EORTC questionnaire (fill in for participants with missing visits in cyc_date)
   mutate(temp = as.numeric(ifelse(complete>0, time, NA)),
          temp = ifelse(time==0 & is.na(temp), -1, temp)) %>%
   group_by(subject) %>%
@@ -241,7 +243,7 @@ ggplot(fig_data2, aes(time, id, fill= missing)) +
 
 <br> <br>
 
-### **Table 2:** Characteristics of patients in the control arm by site
+# Characteristics of participants in the control arm by site
 
 ```{r}
 #create demographic table of control arm by site
@@ -277,7 +279,7 @@ analysis_data %>%
 
 <br> <br>
 
-### **Table 3:** Characteristics of patients in the intervention arm by site
+# Characteristics of participants in the intervention arm by site
 
 ```{r}
 #create demographic table of intervention arm by site
@@ -314,7 +316,9 @@ analysis_data %>%
 
 <br> <br>
 
-### **Table 4:** Secondary outcomes of patients in the intervention arm, overall and by site
+# Secondary outcomes of participants in the intervention arm, overall and by site
+
+This table presents information on the participant level, i.e. has the participant ever had a hard or soft trigger across all questionnaires completed. Summary measures are calculated
 
 ```{r}
 #create table of secondary outcomes for intervention arm by site
@@ -384,4 +388,51 @@ analysis_data %>%
 # tbl %>%
 #   as_flex_table() %>%
 #   flextable::save_as_docx()
+```
+
+# Questionnaire-level characteristics
+
+This table presents information on the questionnaire level so participants are represented multiple times depending on how many questionnaires they have completed.\
+
+**Remaining questionnaires that will not be affected by the TrueNTH bug:**
+
+-   **On study participants:** There are up to `r sum(analysis_data$remaining_q, na.rm = TRUE)` questionnaires remaining if all on-study participants complete the study.
+
+-   **Future enrollments:** An additional `r 180 - analysis_data %>% filter(arm=="intervention") %>% nrow()` participants will be recruited to the study for a total of 180, and these participants can contribute up to a total of `r (180 - analysis_data %>% filter(arm=="intervention") %>% nrow())*12` additional questionnaires.
+
+-   **Total**: The maximum number of additional questionnaires is `r sum(analysis_data$remaining_q, na.rm = TRUE) + (180 - analysis_data %>% filter(arm=="intervention") %>% nrow())*12`.
+
+```{r}
+soft <- triggers_long %>%
+  select(after_bug, soft_anxious, soft_discouraged, soft_fatigue, soft_general_pain,
+      soft_insomnia, soft_joint_pain, soft_sad, soft_social_isolation) %>%
+  tbl_summary(by = after_bug) %>%
+  add_overall(last = TRUE) %>%
+  modify_header(label ~ "**Variable**")
+
+hard <- triggers_long %>%
+  select(after_bug, hard_anxious, hard_discouraged, hard_fatigue, hard_general_pain,
+      hard_insomnia, hard_joint_pain, hard_sad, hard_social_isolation) %>%
+  tbl_summary(by = after_bug) %>%
+  add_overall(last = TRUE) %>%
+  modify_header(label ~ "**Variable**") 
+
+rest <- triggers_long %>%
+  select(after_bug, soft_trigger, hard_trigger, soft_or_hard_trigger, 
+         self_mgmt, self_mgmt_before_email, self_mgmt_after_email) %>%
+  tbl_summary(by = after_bug) %>%
+  add_overall(last = TRUE) %>%
+  modify_header(label ~ "**Variable**") 
+
+tab_all <- tbl_stack(list(soft, hard, rest), 
+          group_header = c("Soft triggers", 
+                           "Hard triggers",
+                           "Summary")) %>% # show_header_names()
+  modify_spanning_header(c(stat_1, stat_2) ~ "**After TrueNTH bug was fixed**") %>%
+  as_gt() %>%
+  gt::tab_style(
+    style = gt::cell_text(weight = "bold"),
+    locations = gt::cells_row_groups(groups = everything())); tab_all
+
+
 ```
