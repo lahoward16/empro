@@ -43,7 +43,7 @@ library(ggconsort)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20240906.RData")
+empro <- here::here("data", "EMPRO_data_20241009.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -407,28 +407,39 @@ soft <- triggers_long %>%
   select(after_bug, soft_anxious, soft_discouraged, soft_fatigue, soft_general_pain,
       soft_insomnia, soft_joint_pain, soft_sad, soft_social_isolation) %>%
   tbl_summary(by = after_bug) %>%
-  add_overall(last = TRUE) %>%
+  add_overall() %>%
   modify_header(label ~ "**Variable**")
 
 hard <- triggers_long %>%
   select(after_bug, hard_anxious, hard_discouraged, hard_fatigue, hard_general_pain,
       hard_insomnia, hard_joint_pain, hard_sad, hard_social_isolation) %>%
   tbl_summary(by = after_bug) %>%
-  add_overall(last = TRUE) %>%
+  add_overall() %>%
   modify_header(label ~ "**Variable**") 
 
-rest <- triggers_long %>%
-  select(after_bug, soft_trigger, hard_trigger, soft_or_hard_trigger, 
-         self_mgmt, self_mgmt_before_email, self_mgmt_after_email) %>%
+summary <- triggers_long %>%
+  select(after_bug, soft_trigger, hard_trigger, soft_or_hard_trigger) %>%
   tbl_summary(by = after_bug) %>%
-  add_overall(last = TRUE) %>%
+  add_overall() %>%
   modify_header(label ~ "**Variable**") 
 
-tab_all <- tbl_stack(list(soft, hard, rest), 
+trig <- triggers_long %>%
+  select(after_bug, self_mgmt, self_mgmt_before_email, self_mgmt_after_email) %>%
+  tbl_summary(by = after_bug, missing = "no") %>%
+  add_overall() %>%
+  modify_table_styling(
+    columns = label,
+    rows = label == "Accessed content before email",
+    footnote = "Email refers to the thank you email the participant receives after completing the questionnaire. If the self-management content was accessed after the email when the bug was present, the participant would have received the tailored self-management content.") %>%
+  modify_header(label ~ "**Variable**") %>%
+  add_p(include = c(self_mgmt))
+
+tab_all <- tbl_stack(list(soft, hard, summary, trig), 
           group_header = c("Soft triggers", 
                            "Hard triggers",
-                           "Summary")) %>% # show_header_names()
-  modify_spanning_header(c(stat_1, stat_2) ~ "**After TrueNTH bug was fixed**") %>%
+                           "Summary",
+                           "Out of those with a hard or soft trigger")) %>% # show_header_names()
+  modify_spanning_header(c(stat_1, stat_2) ~ "**TrueNTH bug status**") %>%
   as_gt() %>%
   gt::tab_style(
     style = gt::cell_text(weight = "bold"),

@@ -250,6 +250,8 @@ triggers_long <- qre_timeline %>%
     soft_trigger = factor(soft_trigger, levels = ynlev2, labels = ynlab2),
     hard_trigger = factor(hard_trigger, levels = ynlev2, labels = ynlab2),
     soft_or_hard_trigger = factor(soft_or_hard_trigger, levels = ynlev2, labels = ynlab2),
+    self_mgmt_before_email = ifelse(soft_or_hard_trigger=="No", NA, self_mgmt_before_email),
+    self_mgmt_after_email = ifelse(soft_or_hard_trigger=="No", NA, self_mgmt_after_email),
     self_mgmt = ifelse(self_mgmt_before_email==1 | self_mgmt_after_email==1, 1, 0),
     self_mgmt_before_email = factor(self_mgmt_before_email, levels = ynlev2, labels = ynlab2),
     self_mgmt_after_email = factor(self_mgmt_after_email, levels = ynlev2, labels = ynlab2),
@@ -258,7 +260,7 @@ triggers_long <- qre_timeline %>%
       is.na(after_bug) & q_date < ymd("2024-07-21") ~ 0,
       is.na(after_bug) & q_date >= ymd("2024-07-21") ~ 1,
       TRUE ~ after_bug),
-    after_bug = factor(after_bug, levels = ynlev2, labels = ynlab2)) %>%
+    after_bug = factor(after_bug, levels = 0:1, labels = c("Bug present", "Bug fixed"))) %>%
   set_variable_labels(soft_anxious = "Anxious",
                       soft_discouraged = "Discouraged",
                       soft_fatigue = "Fatigue",
@@ -278,10 +280,10 @@ triggers_long <- qre_timeline %>%
                       soft_trigger = "Any soft trigger",
                       hard_trigger = "Any hard trigger",
                       soft_or_hard_trigger = "Any soft or hard trigger",
-                      self_mgmt_before_email = "Accessed self management before email",
-                      self_mgmt_after_email = "Accessed self management after email",
-                      self_mgmt = "Accessed self management",
-                      after_bug = "Survey occurred after bug fix")
+                      self_mgmt_before_email = "Accessed content before email",
+                      self_mgmt_after_email = "Accessed content after email",
+                      self_mgmt = "Accessed content",
+                      after_bug = "TrueNTH bug status")
 
 
 # Triggers data
