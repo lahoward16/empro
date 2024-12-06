@@ -43,7 +43,7 @@ library(ggconsort)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20241009.RData")
+empro <- here::here("data", "EMPRO_data_20241205.RData")
 load(empro)
 
 #make enrollment month factor 

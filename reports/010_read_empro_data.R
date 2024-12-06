@@ -16,8 +16,8 @@ library(purrr)
 library(readxl)
 
 # date
-date1="2024-08-19"
-date2="2024-08-19"
+date1="2024-11-18"
+date2="2024-11-18"
 
 # load ironman package
 # devtools::install_github("tgerke/ironer", auth_token="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")
@@ -43,9 +43,9 @@ formatted = list()
 ###############################
 
 ## Load Medidata
-load(here::here("data", paste0(date1, "_EMPRO"), paste0(date2, "_empro.RData")))
+load(paste0("V:/EMPRO/", date1, "_EMPRO/", date2, "_empro.RData"))
 
-trigreport <- read_xlsx(here("data", paste0(date1, "_EMPRO"), "EMPRO-2024-07-trigger-bug-analysis.xlsx")) %>% 
+trigreport <- read_xlsx("V:/EMPRO/EMPRO-2024-07-trigger-bug-analysis.xlsx") %>% 
   rename(user_id = "Tnth\nID",
          visit = "Visit\nMonth",
          empro_completed = "EMPRO\nrecorded",
@@ -93,7 +93,8 @@ formatted$consent_data <- medidata$ic %>%
   full_join(medidata$sub_icds %>%
               select(subject, empro_cnstdate = sub_icdsstdat), by="subject") %>%
   full_join(medidata$cyc_date %>%
-               select(subject, visit_date, month), by="subject", multiple="all") %>%
+               select(subject, visit_date, month, instance_repeat_number), by="subject", multiple="all") %>%
+  mutate(month = ifelse(subject=="170-82-099" & instance_repeat_number==10, "33", month)) %>%
   filter(!is.na(empro_cnstdate)) %>%
   mutate(diff = abs((visit_date %--% empro_cnstdate) / days(1))) %>%
   #filter(!is.na(diff)) %>%
@@ -250,17 +251,19 @@ triggers_long <- qre_timeline %>%
     soft_trigger = factor(soft_trigger, levels = ynlev2, labels = ynlab2),
     hard_trigger = factor(hard_trigger, levels = ynlev2, labels = ynlab2),
     soft_or_hard_trigger = factor(soft_or_hard_trigger, levels = ynlev2, labels = ynlab2),
-    self_mgmt_before_email = ifelse(soft_or_hard_trigger=="No", NA, self_mgmt_before_email),
-    self_mgmt_after_email = ifelse(soft_or_hard_trigger=="No", NA, self_mgmt_after_email),
-    self_mgmt = ifelse(self_mgmt_before_email==1 | self_mgmt_after_email==1, 1, 0),
-    self_mgmt_before_email = factor(self_mgmt_before_email, levels = ynlev2, labels = ynlab2),
-    self_mgmt_after_email = factor(self_mgmt_after_email, levels = ynlev2, labels = ynlab2),
-    self_mgmt = factor(self_mgmt, levels = ynlev2, labels = ynlab2),
     after_bug = case_when(
       is.na(after_bug) & q_date < ymd("2024-07-21") ~ 0,
       is.na(after_bug) & q_date >= ymd("2024-07-21") ~ 1,
       TRUE ~ after_bug),
-    after_bug = factor(after_bug, levels = 0:1, labels = c("Bug present", "Bug fixed"))) %>%
+    after_bug = factor(after_bug, levels = 0:1, labels = c("Bug present", "Bug fixed")),
+    self_mgmt_before_email = ifelse(after_bug=="Bug fixed", NA, self_mgmt_before_email),
+    self_mgmt_after_email = ifelse(after_bug=="Bug fixed", NA, self_mgmt_after_email),
+    self_mgmt = case_when(!is.na(content_domains_accessed) ~ 1,
+                          self_mgmt_before_email==1 | self_mgmt_after_email==1 ~ 1,
+                          TRUE ~ 0),
+    self_mgmt_before_email = factor(self_mgmt_before_email, levels = ynlev2, labels = ynlab2),
+    self_mgmt_after_email = factor(self_mgmt_after_email, levels = ynlev2, labels = ynlab2),
+    self_mgmt = factor(self_mgmt, levels = ynlev2, labels = ynlab2)) %>%
   set_variable_labels(soft_anxious = "Anxious",
                       soft_discouraged = "Discouraged",
                       soft_fatigue = "Fatigue",
@@ -470,7 +473,8 @@ matchdata1 = all_data %>%
   filter(subject %notin% lateenroll) %>%
   # note: 7 subjects are not in cyc_date table
   # unique(arm_set$subject[arm_set$subject %notin% medidata$cyc_date$subject])
-  left_join(medidata$cyc_date %>% select(subject, visit_date, month), by="subject", multiple="all") %>%
+  left_join(medidata$cyc_date %>% select(subject, visit_date, month, instance_repeat_number), by="subject", multiple="all") %>%
+  mutate(month = ifelse(subject=="170-82-099" & instance_repeat_number==10, "33", month)) %>%
   mutate(visit_date = as.Date(ifelse(is.na(visit_date), empro_cnstdate, visit_date), origin = "1970-01-01")) %>% 
   filter(!is.na(visit_date) | arm == "intervention") %>% 
   mutate(month = ifelse(month==999, NA, month),
@@ -584,8 +588,6 @@ trimmed_pool <-
   trimmed_pool[order(trimmed_pool$month,
                      trimmed_pool$arm_subject, trimmed_pool$difference), ]
 
-
-
     
 # Using matching algorithm to find top matches
 create_matches <- function(trimmed_pool, tm, num_matches = 1,
@@ -664,6 +666,7 @@ not_matched <- ptlist[ptlist %notin% matches$arm_subject]; not_matched
 # June 2024: "170-20-052" "170-48-071" "170-48-080" "170-48-081" "170-56-081" "170-56-082"
 # June 2024 v2: "170-20-052" "170-37-041" "170-37-045" "170-48-071" "170-48-080" "170-56-081" "170-56-082"
 # Sept 2024: "170-37-031" "170-37-041" "170-37-045" "170-37-046" "170-37-047" "170-37-048" "170-48-071" "170-48-078" "170-48-080" "170-48-081" "170-48-083" "170-48-085"
+# Dec 2024: "170-20-052" "170-20-054" "170-20-056" "170-37-046" "170-37-049" "170-37-050" "170-48-071" "170-48-078" "170-48-080" "170-48-083" "170-48-085"
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -671,9 +674,11 @@ controls <- matches %>% select(subject = control_subject,
   mutate(enrollment_month = enrollment_month - 1, 
          match = 1) %>%
   left_join(medidata$cyc_date %>% 
-              select(subject, visit_date, month) %>%
+              select(subject, visit_date, month, instance_repeat_number) %>%
               mutate(month = as.numeric(month)), 
             by=c("subject", "enrollment_month"="month")) %>%
+  mutate(enrollment_month = ifelse(subject=="170-82-099" & instance_repeat_number==10, "33", enrollment_month)) %>%
+  select(-instance_repeat_number) %>% 
   rename(enrollment_month2=enrollment_month, visit_date2=visit_date)
 
 
@@ -807,8 +812,9 @@ empro_data <- all_data %>%
 # which EMPRO visits a patient has completed
 visits <- empro_data %>%
   select(subject, enrollment_month) %>%
-  left_join(medidata$cyc_date %>% select(subject, visit_date, month), by="subject", multiple="all") %>%
+  left_join(medidata$cyc_date %>% select(subject, visit_date, month, instance_repeat_number), by="subject", multiple="all") %>%
   mutate(month = as.numeric(month)) %>%
+  mutate(month = ifelse(subject=="170-82-099" & instance_repeat_number==10, 33, month)) %>%
   filter((month >= enrollment_month | is.na(month)) & month!=999) %>%
   mutate(month_on_empro = paste0("completed_month_", month - enrollment_month),
          complete=1) %>%
