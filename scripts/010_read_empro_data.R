@@ -492,9 +492,11 @@ matchdata = all_data %>%
   filter(subject %notin% lateenroll) %>%
   # note: 7 subjects are not in cyc_date table
   # unique(arm_set$subject[arm_set$subject %notin% medidata$cyc_date$subject])
-  left_join(medidata$cyc_date %>% select(subject, visit_date, month, instance_repeat_number), by="subject", multiple="all") %>%
-  mutate(month = ifelse(subject=="170-82-099" & instance_repeat_number==10, "33", month),
-         visit_date = as.Date(ifelse(is.na(visit_date), empro_cnstdate, visit_date), origin = "1970-01-01"),
+  left_join(medidata$cyc_date %>% 
+              select(subject, visit_date, month, instance_repeat_number) %>% 
+              filter(!month %in% c("48", "51", "54", "57", "60")), 
+            by="subject", multiple="all") %>%
+  mutate(visit_date = as.Date(ifelse(is.na(visit_date), empro_cnstdate, visit_date), origin = "1970-01-01"),
          # disease state at visit
          cohort_empro = case_when(
            !is.na(cohort_empro) ~ cohort_empro,
@@ -585,7 +587,7 @@ reduced_data <- dplyr::bind_rows(arm_set, comp_set)
 
 
 # add propensity scores
-fm <- as.formula(arm ~ as.factor(country_std) + enrollment_year + as.factor(enrollment_month_gp) + 
+fm <- as.formula(arm ~ as.factor(country_std) + as.factor(enrollment_year) + as.factor(enrollment_month_gp) + 
                    as.factor(cohort_std_empro) + age_visit + as.factor(race_gp) + as.factor(educ_gp))
 vars <- all.vars(fm)
 scored_data <- score_data(reduced_data = reduced_data,
@@ -727,7 +729,7 @@ controls <- matches %>% select(subject = control_subject,
             by=c("subject", "control_enrollment_month"="month")) %>%
   #mutate(enrollment_month_gp = ifelse(subject=="170-82-099" & instance_repeat_number==10, "33", enrollment_month_gp)) %>%
   select(-instance_repeat_number) %>% 
-  rename(enrollment_month_gp2=control_enrollment_month_gp, enrollment_month2=control_enrollment_month, visit_date2=visit_date)
+  rename(enrollment_month2=control_enrollment_month, visit_date2=visit_date)
 
 
 
@@ -800,7 +802,14 @@ empro_data <- all_data %>%
     empro_cnstdate = as.Date(ifelse(is.na(empro_cnstdate), visit_date2, empro_cnstdate), 
                              origin = "1970-01-01"),
     enrollment_month = ifelse(is.na(enrollment_month), enrollment_month2, enrollment_month),
-    enrollment_month_gp2 = factor(enrollment_month_gp2,
+    enrollment_month_gp = case_when(
+      enrollment_month==0 ~ 1,
+      enrollment_month>0 & enrollment_month<=12 ~ 2,
+      enrollment_month> 12 & enrollment_month<=24 ~ 3,
+      enrollment_month> 24 & enrollment_month<=36 ~ 4,
+      enrollment_month>36 ~ 5
+    ),
+    enrollment_month_gp = factor(enrollment_month_gp,
                                   levels = 1:5,
                                   labels = c("Baseline", "Month 3-12", "Month 15-24", "Month 27-36", "After month 36")),
     # other variables
@@ -813,6 +822,11 @@ empro_data <- all_data %>%
     race_gp = factor(race_gp, 
                      levels = 1:3,
                      labels = c("White", "Black", "Other/Unknown")),
+    educ_gp = case_when(
+      education %in% c("Less than secondary", "Some secondary", "Secondary school diploma") ~ 1,
+      education %in% c("Some university", "University 2 yr", "University 4 yr", "Graduate/professional degree") ~ 2,
+      TRUE ~ 99),
+    educ_gp = factor(educ_gp, levels = c(1,2,99), labels = c("Secondary school or less", "College or more", "Unknown")),
     diag_enroll = interval(diagbx_date_int, empro_cnstdate) %/% months(1),
     dead = ifelse(is.na(dead), 0, dead),
     dead = factor(dead, levels=ynlev2, labels=ynlab2),
@@ -887,10 +901,11 @@ var_label(empro_data) <- list(
   year_emp_enrollment = "Year of EMPRO enrollment",
   year_iron_enrollment = "Year of IRONMAN enrollment",
   enrollment_month = "Study visit at entry",
-  enrollment_month_gp2 = "IRONMAN visit at entry",
+  enrollment_month_gp = "IRONMAN visit at entry",
   cohort = "Study cohort",
   cohort_empro = "Study cohort",
   education = "Education level",
+  educ_gp = "Education level",
   yn_eortc_0 = "EORTC QLQ-C30 submitted at baseline",
   yn_eortc_3 = "EORTC QLQ-C30 submitted at 3 mo",
   yn_eortc_6 = "EORTC QLQ-C30 submitted at 6 mo",

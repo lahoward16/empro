@@ -57,7 +57,7 @@ empro_data$not_matched = ifelse(empro_data$subject %in% not_matched, 1, 0)
 
 #relabel new vars
 var_label(empro_data) <- list(
-  crpc_per = "Percent CRPC (vs.mHSPC)", 
+  crpc_per = "CRPC (vs. mHSPC)", 
   enrollment_month1 = "Study visit at entry")
 
 # analysis data set (remove exclusions)
@@ -72,9 +72,7 @@ The "proxy control" group is selected through propensity score methods using the
 
 -   Country (USA, Canada, UK, Australia)
 
--   Time from diagnosis to entry (continuous)
-
--   EMPRO enrollment year (continuous)
+-   EMPRO enrollment year (categorical)
 
 -   IRONMAN study visit at entry (Baseline, 3-12 mo, 15-24 mo, 27-36 mo, after 36 mo)
 
@@ -84,7 +82,8 @@ The "proxy control" group is selected through propensity score methods using the
 
 -   Race (White, Black, Other)
 
--   Education level (secondary school or less, college or more, unknown)
+-   educ_gp level (secondary school or less, college or more, unknown)
+
 
 `rollmatch` selects the control participant as well as the theoretical entry time for the control participant to best match the participants in the intervention arm.
 
@@ -180,9 +179,9 @@ analysis_data %>%
          race_gp,
          diag_enroll,
          year_emp_enrollment,
-         enrollment_month1,
+         enrollment_month_gp,
          crpc_per,
-         education,
+         educ_gp,
          starts_with("yn_eortc")) %>%
   tbl_summary(by = arm,
               missing = "ifany",
@@ -192,7 +191,8 @@ analysis_data %>%
                                                "{min}, {max}")) %>%
   bold_labels() %>%
   modify_header(label = "",stat_1 = "**Proxy Control** N = {n}", 
-                           stat_2 = "**Intervention** N = {n}")
+                           stat_2 = "**Intervention** N = {n}") %>% 
+  add_difference()
 
 # to output to .docx:
 # tbl %>%
@@ -274,7 +274,7 @@ analysis_data %>%
          year_emp_enrollment,
          enrollment_month1,
          crpc_per,
-         education,
+         educ_gp,
          yn_eortc_0,
          yn_eortc_3,
          yn_eortc_6,
@@ -287,7 +287,7 @@ analysis_data %>%
               statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
                                                "{min}, {max}")) %>%
   bold_labels() %>%
-  modify_header(label = "")
+  modify_header(label = "") 
 
 # to output to .docx:
 # tbl %>%
@@ -310,7 +310,7 @@ analysis_data %>%
          year_emp_enrollment,
          enrollment_month1,
          crpc_per,
-         education,
+         educ_gp,
          yn_eortc_0,
          yn_eortc_3,
          yn_eortc_6,
