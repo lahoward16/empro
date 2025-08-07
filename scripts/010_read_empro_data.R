@@ -485,14 +485,7 @@ matchdata = all_data %>%
          educ_gp = case_when(
            education %in% c("Less than secondary", "Some secondary", "Secondary school diploma") ~ 1,
            education %in% c("Some university", "University 2 yr", "University 4 yr", "Graduate/professional degree") ~ 2,
-           TRUE ~ 99),
-         enrollment_month_gp = case_when(
-           enrollment_month==0 ~ 1,
-           enrollment_month>0 & enrollment_month<=12 ~ 2,
-           enrollment_month> 12 & enrollment_month<=24 ~ 3,
-           enrollment_month> 24 & enrollment_month<=36 ~ 4,
-           enrollment_month>36 ~ 5
-         )) %>% 
+           TRUE ~ 99)) %>% 
   # subjects missing EMPRO consent date
   filter(subject %notin% noconsent) %>%
   # subject with late enrollment (>45 months) 
@@ -518,12 +511,26 @@ matchdata = all_data %>%
          month = as.numeric(month),
          arm = as.numeric(ifelse(arm=="control", 0, 1)),
          # everything must be positive so shift +1 month
-         enrollment_month = enrollment_month + 1,
-         month = month + 1,
+         #enrollment_month = enrollment_month + 1,
+         #month = month + 1,
          month = ifelse(is.na(month), enrollment_month, month),
-         enrollment_month = ifelse(is.na(enrollment_month), month, enrollment_month)
-         ) %>% 
-  select(-diagbx_date_int, -brthdat, -race, -education, -visit_date, -empro_cnstdate, -cohort_std, -cohort, -cohort_empro, -mcrpcdat, -crpcdat, -mhspcdat,enrollment_month) %>%
+         enrollment_month = ifelse(is.na(enrollment_month), month, enrollment_month),
+         # categorize month
+         month_gp = case_when(
+           month==0 ~ 1,
+           month>0 & month<=12 ~ 2,
+           month> 12 & month<=24 ~ 3,
+           month> 24 & month<=36 ~ 4,
+           month>36 ~ 5
+         ),
+         enrollment_month_gp = case_when(
+           enrollment_month==0 ~ 1,
+           enrollment_month>0 & enrollment_month<=12 ~ 2,
+           enrollment_month> 12 & enrollment_month<=24 ~ 3,
+           enrollment_month> 24 & enrollment_month<=36 ~ 4,
+           enrollment_month>36 ~ 5
+         )) %>% 
+  select(-diagbx_date_int, -brthdat, -race, -education, -visit_date, -empro_cnstdate, -cohort_std, -cohort, -cohort_empro, -mcrpcdat, -crpcdat, -mhspcdat) %>%
   # 8/30/23 - this drops 2 patients in intervention arm missing cohort_std_empro
   # 170-20-050, 170-20-051
   # mutate(drop = ifelse(!is.na(month) & !is.na(cohort_std_empro) & month!=999 & !is.na(age_visit), 0, 1)) %>%
@@ -536,15 +543,7 @@ matchdata = all_data %>%
     country=="Australia" ~ 1,
     country=="Canada" ~ 2,
     country=="England" ~ 3,
-    country=="USA" ~ 4),
-   # categorize month
-   month_gp = case_when(
-      month==0 ~ 1,
-      month>0 & month<=12 ~ 2,
-      month> 12 & month<=24 ~ 3,
-      month> 24 & month<=36 ~ 4,
-      month>36 ~ 5
-    )) %>% 
+    country=="USA" ~ 4)) %>% 
   select(-month)
   
 
@@ -608,13 +607,14 @@ comparison_pool <-
 comparison_pool$difference <-
   abs(comparison_pool$score.x - comparison_pool$score.y)
 comparison_pool <- comparison_pool %>%
-  dplyr::select(dplyr::one_of("month", paste0("subject", ".x"), paste0("subject", ".y")),
-                paste0("enrollment_month", ".x"), paste0("enrollment_month", ".y"),
-                "score.x", "score.y", "difference")
-names(comparison_pool) <- c("month", "arm_subject", "control_subject",
-                            paste0("arm_", "enrollment_month"),
-                            paste0("control_", "enrollment_month"),
-                            "arm_score", "control_score", "difference")
+  dplyr::select(dplyr::one_of("month_gp", paste0("subject", ".x"), paste0("subject", ".y")),
+                paste0("enrollment_month_gp", ".x"), paste0("enrollment_month_gp", ".y"),
+                "score.x", "score.y", "difference", "enrollment_month.x", "enrollment_month.y")
+names(comparison_pool) <- c("month_gp", "arm_subject", "control_subject",
+                            paste0("arm_", "enrollment_month_gp"),
+                            paste0("control_", "enrollment_month_gp"),
+                            "arm_score", "control_score", "difference", 
+                            "arm_enrollment_month", "control_enrollment_month")
 
 # Trim pool based on specified caliper
 s_df <- scored_data
@@ -630,7 +630,7 @@ trimmed_pool <-
                 comparison_pool$difference <= as.numeric(width))
 
 trimmed_pool <-
-  trimmed_pool[order(trimmed_pool$month,
+  trimmed_pool[order(trimmed_pool$month_gp,
                      trimmed_pool$arm_subject, trimmed_pool$difference), ]
 
     
@@ -699,7 +699,7 @@ create_matches <- function(trimmed_pool, tm, num_matches = 1,
 
 
 ## find matches 
-matches <- create_matches(trimmed_pool, trimmed_pool$month, num_matches=1)
+matches <- create_matches(trimmed_pool, trimmed_pool$month_gp, num_matches=1)
 
 # patients without matches
 ptlist = matchdata %>% filter(arm==1) %>% pull(subject) %>% unique()
@@ -714,19 +714,20 @@ not_matched <- ptlist[ptlist %notin% matches$arm_subject]; not_matched
 # Dec 2024: "170-20-052" "170-20-054" "170-20-056" "170-37-046" "170-37-049" "170-37-050" "170-48-071" "170-48-078" "170-48-080" "170-48-083" "170-48-085"
 # February 2025: "170-37-050" "170-48-083" "170-48-088" "170-48-090" "170-48-091"
 # May 2025: "170-48-083" "170-48-088" "170-48-091"
+# August 2025: all matched (same dataset as previous but categorized enrollment month and fixed a few things)
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
-                               enrollment_month = control_enrollment_month) %>%
-  mutate(enrollment_month = enrollment_month - 1, 
-         match = 1) %>%
+                               control_enrollment_month_gp,
+                               control_enrollment_month) %>%
+  mutate(match = 1) %>%
   left_join(medidata$cyc_date %>% 
               select(subject, visit_date, month, instance_repeat_number) %>%
               mutate(month = as.numeric(month)), 
-            by=c("subject", "enrollment_month"="month")) %>%
-  mutate(enrollment_month = ifelse(subject=="170-82-099" & instance_repeat_number==10, "33", enrollment_month)) %>%
+            by=c("subject", "control_enrollment_month"="month")) %>%
+  #mutate(enrollment_month_gp = ifelse(subject=="170-82-099" & instance_repeat_number==10, "33", enrollment_month_gp)) %>%
   select(-instance_repeat_number) %>% 
-  rename(enrollment_month2=enrollment_month, visit_date2=visit_date)
+  rename(enrollment_month_gp2=control_enrollment_month_gp, enrollment_month2=control_enrollment_month, visit_date2=visit_date)
 
 
 
@@ -799,6 +800,9 @@ empro_data <- all_data %>%
     empro_cnstdate = as.Date(ifelse(is.na(empro_cnstdate), visit_date2, empro_cnstdate), 
                              origin = "1970-01-01"),
     enrollment_month = ifelse(is.na(enrollment_month), enrollment_month2, enrollment_month),
+    enrollment_month_gp2 = factor(enrollment_month_gp2,
+                                  levels = 1:5,
+                                  labels = c("Baseline", "Month 3-12", "Month 15-24", "Month 27-36", "After month 36")),
     # other variables
     age_baseline = as.numeric(floor((empro_cnstdate - brthdat)/365.25)),
     year_emp_enrollment = factor(year(empro_cnstdate)),
@@ -883,6 +887,7 @@ var_label(empro_data) <- list(
   year_emp_enrollment = "Year of EMPRO enrollment",
   year_iron_enrollment = "Year of IRONMAN enrollment",
   enrollment_month = "Study visit at entry",
+  enrollment_month_gp2 = "IRONMAN visit at entry",
   cohort = "Study cohort",
   education = "Education level",
   yn_eortc_0 = "EORTC QLQ-C30 submitted at baseline",
