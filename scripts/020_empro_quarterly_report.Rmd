@@ -1,0 +1,445 @@
+---
+title: "EMPRO Quarterly Report"
+author: "Lauren Howard"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    number_sections: true
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("../reports/EMPRO Quarterly Report ",Sys.Date(),'.html')) })
+---
+
+```{css, echo=FALSE}
+/* make html file wider to avoid line wrapping in tables*/
+div.main-container {
+  max-width: 1800px !important;
+  margin-left: auto;
+  margin-right: auto;
+}
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = TRUE, echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.width = 12, fig.height = 8, fig.align = 'center')
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(here)
+library(gtsummary)
+library(ggplot2)
+library(kableExtra)
+library(ggpubr)
+library(haven)
+library(labelled)
+library(ggmosaic)
+library(gt)
+library(dplyr)
+library(gtsummary)
+library(flextable)
+library(ggconsort)
+
+```
+
+```{r readdata, echo = F, include = F}
+# load data set
+empro <- here::here("data", "EMPRO_data_20250602.RData")
+load(empro)
+
+#make enrollment month factor 
+empro_data$enrollment_month1 = factor(empro_data$enrollment_month)
+
+#make new variable for yes/no CRPC
+empro_data$crpc_per = empro_data$cohort != "mHSPC"
+
+# add variable for not matched
+empro_data$not_matched = ifelse(empro_data$subject %in% not_matched, 1, 0)
+
+#relabel new vars
+var_label(empro_data) <- list(
+  crpc_per = "Percent CRPC (vs.mHSPC)", 
+  enrollment_month1 = "Study visit at entry")
+
+# analysis data set (remove exclusions)
+analysis_data <- empro_data %>% 
+  filter(!is.na(empro_cnstdate) & enrollment_month<=45 & !is.na(cohort)) %>%
+  mutate(enrollment_month1 = fct_drop(enrollment_month1)) %>%
+  set_variable_labels(enrollment_month1 = "Study visit at entry")
+
+```
+
+The "proxy control" group is selected through propensity score methods using the package `rollmatch`. We matched 1:1 on country, time from diagnosis to enrollment, enrollment year, study visit at entry, disease status, age at entry, race, and education level. `rollmatch` selects the control participant as well as the theoretical entry time for the control participant to best match the participants in the intervention arm.
+
+Note that 15 EMPRO participants were excluded due to the TrueNTH technical bug and they are removed from the initial box in the consort diagram.
+
+The consort diagram below shows the number of EMPRO participants who were matched. Since this is an interim analysis, we will continue to monitor if we have trouble matching these participants and can match with replacement if needed. EMPRO participants missing consent date are not included in the analyses below since we cannot calculate age or other characteristics on them. Patients must be enrolled in EMPRO before or at their Month 45 visit for IRONMAN so ensure they can complete study follow-ups.
+
+# Patient matching
+
+```{r, fig.width = 7, fig.height = 5}
+# create cohorts
+study_cohorts <- 
+  empro_data %>%
+  filter(arm=="intervention") %>%
+  cohort_start("Patients consented to EMRPO") %>%
+  # Define cohorts using named expressions --------------------
+  # Notice that you can use previously defined cohorts in subsequent steps
+  cohort_define(
+    consent_date = .full %>% filter(!is.na(empro_cnstdate)),
+    disease_cohort = consent_date %>% filter(!is.na(cohort)),
+    enroll = disease_cohort %>% filter(enrollment_month<=45),
+    matched = enroll %>% filter(not_matched==0),
+    # anti_join is useful for counting exclusions -------------
+    excluded = anti_join(.full, enroll, by = "subject"),
+    excluded_consent_date = anti_join(.full, consent_date, by = "subject"),
+    excluded_disease_cohort = anti_join(consent_date, disease_cohort, by = "subject"),
+    excluded_enroll = anti_join(disease_cohort, enroll, by = "subject"),
+    not_matched = anti_join(enroll, matched, by = "subject")
+  ) %>%
+  # Provide text labels for cohorts ---------------------------
+  cohort_label(
+    consent_date = "Consent date available",
+    disease_cohort = "Disease state available",
+    enroll = "Eligible for matching",
+    matched = "EMRPO participants with matched controls",
+    excluded = "Exclusions",
+    excluded_consent_date = "No consent date",
+    excluded_disease_cohort = "No disease state",
+    excluded_enroll = "Late EMPRO enrollment",
+    not_matched = "No match available"
+  )
+
+# create consort diagram
+study_consort <- study_cohorts %>%
+  consort_box_add(
+    "full", 0, 50, cohort_count_adorn(study_cohorts, .full)
+  ) %>%
+  consort_box_add(
+    "exclusions", 20, 40, glue::glue(
+      '{cohort_count_adorn(study_cohorts, excluded)}<br>
+      • {cohort_count_adorn(study_cohorts, excluded_consent_date)}<br>
+      • {cohort_count_adorn(study_cohorts, excluded_disease_cohort)}<br>
+      • {cohort_count_adorn(study_cohorts, excluded_enroll)}
+      ')
+  ) %>%
+  consort_box_add(
+    "enroll", 0, 30, cohort_count_adorn(study_cohorts, enroll)
+  ) %>%
+  consort_box_add(
+    "not_matched", 20, 20, cohort_count_adorn(study_cohorts, not_matched)
+  ) %>%
+  consort_box_add(
+    "matched", 0, 10, cohort_count_adorn(study_cohorts, matched)
+  ) %>%
+  consort_arrow_add(
+    end = "exclusions", end_side = "left", start_x = 0, start_y = 40
+  ) %>%
+  consort_arrow_add(
+    end = "not_matched", end_side = "left", start_x = 0, start_y = 20
+  ) %>%
+  consort_arrow_add(
+    "full", "bottom", "enroll", "top"
+  ) %>%
+  consort_arrow_add(
+    "enroll", "bottom", "matched", "top"
+  ) 
+
+study_consort %>%
+  ggplot() + 
+  geom_consort() +
+  theme_consort(margin_h = 15, margin_v = 1)
+
+```
+
+# Characteristics of participants in the intervention group and proxy control group
+
+```{r}
+#create demographic table by invention and control (arm variable = groups)
+analysis_data %>%
+  dplyr::select(arm,
+         country,
+         age_baseline,
+         race_gp,
+         diag_enroll,
+         year_emp_enrollment,
+         enrollment_month1,
+         crpc_per,
+         education,
+         starts_with("yn_eortc")) %>%
+  tbl_summary(by = arm,
+              missing = "ifany",
+              missing_text = "N missing",
+              type = all_continuous() ~ "continuous2",
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}")) %>%
+  bold_labels() %>%
+  modify_header(label = "",stat_1 = "**Proxy Control** N = {n}", 
+                           stat_2 = "**Intervention** N = {n}")
+
+# to output to .docx:
+# tbl %>%
+#   as_flex_table() %>%
+#   flextable::save_as_docx()
+```
+
+<br> <br>
+
+# Completeness of EORTC-QLQ30 questionnaire at each study time point
+
+```{r}
+fig_data <- analysis_data %>%
+  select(subject, arm, starts_with("percent_eortc_complete")) %>%
+  pivot_longer(cols = starts_with("percent_eortc_complete"),
+               names_to = "time",
+               names_prefix = "percent_eortc_complete_",
+               values_to = "complete") %>%
+  left_join(analysis_data %>%
+              select(subject, starts_with("completed_month")) %>%
+              pivot_longer(cols = starts_with("completed_month"),
+                           names_to = "time",
+                           names_prefix = "completed_month_",
+                           values_to = "completed_month"),
+            by=c("subject", "time")) %>%
+  mutate_at(vars(starts_with("complete")), ~replace_na(.,0)) %>%
+  # last completed EORTC questionnaire (fill in for participants with missing visits in cyc_date)
+  mutate(temp = as.numeric(ifelse(complete>0, time, NA)),
+         temp = ifelse(time==0 & is.na(temp), -1, temp)) %>%
+  group_by(subject) %>%
+  mutate(last_complete = max(temp, na.rm=TRUE)) %>%
+  ungroup() %>%
+  # categorize missing pattern
+  mutate(missing = case_when(
+    (complete==0 & completed_month==1) | (complete==0 & as.numeric(time) <= last_complete) ~ 3,
+    complete==0 & as.numeric(time) > last_complete  ~ 4,
+    complete>0 & complete<100 ~ 2,
+    complete==100 ~ 1),
+    missing = factor(missing, levels = 1:4, labels=c("Fully completed", 
+                                                     "Partially completed",
+                                                     "Not completed (missing)", 
+                                                     "Visit has not happened")),
+         time = factor(time, levels=seq(0,12,3))) %>%
+  group_by(subject) %>%
+  mutate(mean = mean(complete)) %>%
+  ungroup() %>%
+  arrange(arm, last_complete, mean) 
+fig_data2 <- fig_data %>%
+  filter(arm=="control") %>%
+  mutate(id = match(subject, unique(subject))) %>% 
+  bind_rows(fig_data %>% filter(arm=="intervention") %>%
+              mutate(id = match(subject, unique(subject))))
+  
+
+ggplot(fig_data2, aes(time, id, fill= missing)) + 
+  geom_tile() + 
+  theme(axis.ticks=element_blank(),
+        axis.text.y=element_blank()) + 
+  facet_grid(cols=vars(arm), scales = "free_y") + 
+  labs(y="Subject", 
+       x="Month") +
+  scale_fill_manual(name = "", values = c("#7bccc4", "#43a2ca", "#0868ac", "#fc8d59"))
+  
+
+```
+
+<br> <br>
+
+# Characteristics of participants in the control arm by site
+
+```{r}
+#create demographic table of control arm by site
+analysis_data %>%
+  filter(arm == "control") %>% 
+  dplyr::select(site,
+         age_baseline,
+         race_gp,
+         diag_enroll,
+         year_emp_enrollment,
+         enrollment_month1,
+         crpc_per,
+         education,
+         yn_eortc_0,
+         yn_eortc_3,
+         yn_eortc_6,
+         yn_eortc_9,
+         yn_eortc_12) %>%
+  tbl_summary(by = site,
+              missing = "ifany",
+              missing_text = "N missing",
+              type = all_continuous() ~ "continuous2",
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}")) %>%
+  bold_labels() %>%
+  modify_header(label = "")
+
+# to output to .docx:
+# tbl %>%
+#   as_flex_table() %>%
+#   flextable::save_as_docx()
+```
+
+<br> <br>
+
+# Characteristics of participants in the intervention arm by site
+
+```{r}
+#create demographic table of intervention arm by site
+analysis_data %>%
+  filter(arm == "intervention") %>% 
+  dplyr::select(site,
+         age_baseline,
+         race_gp,
+         diag_enroll,
+         year_emp_enrollment,
+         enrollment_month1,
+         crpc_per,
+         education,
+         yn_eortc_0,
+         yn_eortc_3,
+         yn_eortc_6,
+         yn_eortc_9,
+         yn_eortc_12) %>%
+  tbl_summary(by = site,
+              missing = "ifany",
+              missing_text = "N missing",
+              type = list(age_baseline ~ "continuous2",
+                          diag_enroll ~ "continuous2"),
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}")) %>%
+  bold_labels() %>%
+  modify_header(label = "")
+
+# to output to .docx:
+# tbl %>%
+#   as_flex_table() %>%
+#   flextable::save_as_docx()
+```
+
+<br> <br>
+
+# Secondary outcomes of participants in the intervention arm, overall and by site
+
+This table presents information on the participant level, i.e. has the participant ever had a hard or soft trigger across all questionnaires completed. Summary measures are calculated
+
+```{r}
+#create table of secondary outcomes for intervention arm by site
+analysis_data %>%
+  filter(arm == "intervention") %>% 
+  dplyr::select(site,
+         prom_submitted_1,
+         prom_submitted_2,
+         prom_submitted_3,
+         prom_submitted_4,
+         prom_submitted_5,
+         prom_submitted_6,
+         prom_submitted_7,
+         prom_submitted_8,
+         prom_submitted_9,
+         prom_submitted_10,
+         prom_submitted_11,
+         prom_submitted_12,
+         percent_prom_complete_1,
+         percent_prom_complete_2,
+         percent_prom_complete_3,
+         percent_prom_complete_4,
+         percent_prom_complete_5,
+         percent_prom_complete_6,
+         percent_prom_complete_7,
+         percent_prom_complete_8,
+         percent_prom_complete_9,
+         percent_prom_complete_10,
+         percent_prom_complete_11,
+         percent_prom_complete_12,
+         n_visit_soft_trigger,
+         n_total_soft_trigger,
+         any_soft_trigger,
+         self_mgmt_soft,
+         n_visit_hard_trigger,
+         n_total_hard_trigger,
+         any_hard_trigger,
+         self_mgmt_hard,
+         clinician_contact) %>%
+  tbl_summary(by = site,
+              missing = "no",
+              type = list(percent_prom_complete_1 ~ "continuous2",
+                          percent_prom_complete_2 ~ "continuous2",
+                          percent_prom_complete_3 ~ "continuous2",
+                          percent_prom_complete_4 ~ "continuous2",
+                          percent_prom_complete_5 ~ "continuous2",
+                          percent_prom_complete_6 ~ "continuous2",
+                          percent_prom_complete_7 ~ "continuous2",
+                          percent_prom_complete_8 ~ "continuous2",
+                          percent_prom_complete_9 ~ "continuous2",
+                          percent_prom_complete_10 ~ "continuous2",
+                          percent_prom_complete_11 ~ "continuous2",
+                          percent_prom_complete_12 ~ "continuous2",
+                          n_total_soft_trigger ~ "continuous2",
+                          n_visit_soft_trigger ~ "continuous2",
+                          n_total_hard_trigger ~ "continuous2",
+                          n_visit_hard_trigger ~ "continuous2"),
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}"),
+              digits = list(all_continuous() ~ c(0))) %>%
+  gtsummary::add_overall() %>%
+  bold_labels() %>%
+  modify_header(label = "")
+
+
+# to output to .docx:
+# tbl %>%
+#   as_flex_table() %>%
+#   flextable::save_as_docx()
+```
+
+# Questionnaire-level characteristics
+
+This table presents information on the questionnaire level so participants are represented multiple times depending on how many questionnaires they have completed.\
+
+**Remaining questionnaires that will not be affected by the TrueNTH bug:**
+
+-   **On study participants:** There are up to `r sum(analysis_data$remaining_q, na.rm = TRUE)` questionnaires remaining if all on-study participants complete the study.
+
+```{r}
+soft <- triggers_long %>%
+  select(after_bug, soft_anxious, soft_discouraged, soft_fatigue, soft_general_pain,
+      soft_insomnia, soft_joint_pain, soft_sad, soft_social_isolation) %>%
+  tbl_summary(by = after_bug) %>%
+  add_overall() %>%
+  modify_header(label ~ "**Variable**")
+
+hard <- triggers_long %>%
+  select(after_bug, hard_anxious, hard_discouraged, hard_fatigue, hard_general_pain,
+      hard_insomnia, hard_joint_pain, hard_sad, hard_social_isolation) %>%
+  tbl_summary(by = after_bug) %>%
+  add_overall() %>%
+  modify_header(label ~ "**Variable**") 
+
+summary <- triggers_long %>%
+  select(after_bug, soft_trigger, hard_trigger, soft_or_hard_trigger) %>%
+  tbl_summary(by = after_bug) %>%
+  add_overall() %>%
+  modify_header(label ~ "**Variable**") 
+
+trig <- triggers_long %>%
+  select(after_bug, self_mgmt, self_mgmt_before_email, self_mgmt_after_email) %>%
+  tbl_summary(by = after_bug, missing = "no") %>%
+  add_overall() %>%
+  modify_table_styling(
+    columns = label,
+    rows = label == "Accessed content before email",
+    footnote = "Email refers to the thank you email the participant receives after completing the questionnaire. If the self-management content was accessed after the email when the bug was present, the participant would have received the tailored self-management content.") %>%
+  modify_header(label ~ "**Variable**") %>%
+  add_p(include = c(self_mgmt))
+
+tab_all <- tbl_stack(list(soft, hard, summary, trig), 
+          group_header = c("Soft triggers", 
+                           "Hard triggers",
+                           "Summary",
+                           "Out of those with a hard or soft trigger")) %>% # show_header_names()
+  modify_spanning_header(c(stat_1, stat_2) ~ "**TrueNTH bug status**") %>%
+  as_gt() %>%
+  gt::tab_style(
+    style = gt::cell_text(weight = "bold"),
+    locations = gt::cells_row_groups(groups = everything())); tab_all
+
+
+```

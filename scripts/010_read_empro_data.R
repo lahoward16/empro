@@ -110,7 +110,7 @@ formatted$consent_data <- medidata$ic %>%
   
 # Pull out fields from MHDIAGBX table
 formatted$diagnosis_data <- medidata$mhdiagbx %>%
-  select(subject, diagbx_date_int)
+  select(subject, diagbx_date_int) 
 
 # pull data from DEMOGRAPHICS table
 formatted$demo_data <- medidata$dm %>%
@@ -127,8 +127,20 @@ formatted$death_data <- medidata$pstatus %>%
   mutate(dead=1)
 
 # pull CRPC/HSPC diagnosis dates
+# find diagnosis date closest to but before EMPRO consent date
 formatted$dis_state <- medidata$mhdx %>% 
-  select(subject, mhspcdat, crpcdat, mcrpcdat)
+  full_join(formatted$consent_data %>% select(subject, empro_cnstdate), by="subject") %>% 
+  full_join(formatted$cohort_data, by="subject") %>% 
+  mutate(cohort_empro = case_when(
+    mcrpcdat <= empro_cnstdate ~ "CRPC",
+    crpcdat <= empro_cnstdate ~ "CRPC",
+    mhspcdat <= empro_cnstdate ~ "mHSPC", 
+    TRUE ~ cohort
+  ),
+  cohort_std_empro = ifelse(cohort_empro=="CRPC", 2, 1)) %>% 
+  select(subject, mhspcdat, crpcdat, mcrpcdat, cohort_empro, cohort_std_empro)
+    # 8/6/25 - 11 patients were enrolled as IRONMAN as mHSPC but progressed 
+     # to CRPC by the time of EMRPO enrollment
 
 # pull demographics - race
 # function to count the NA columns
@@ -459,19 +471,28 @@ lateenroll <- all_data %>% filter(arm=="intervention" & enrollment_month>45) %>%
     # time from diagnosis to enrollment
     # enrollment year
     # study visit at entry
-    # disease status
+    # disease status at entry
     # age at entry
     # race
     # education level
-matchdata1 = all_data %>%
-  select(subject, diagbx_date_int, enrollment_month, cohort_std, brthdat, race, education, arm, empro_cnstdate) %>%
+matchdata = all_data %>%
+  select(subject, diagbx_date_int, enrollment_month, cohort_empro, cohort_std, cohort,
+         mcrpcdat, crpcdat, mhspcdat,
+         brthdat, race, education, arm, empro_cnstdate) %>%
   mutate(race_gp = case_when(race=="White / Caucasian" ~ 1,
                              race=="African / African American / Black / Black British / Caribbean" ~ 2,
                              TRUE ~ 99),
          educ_gp = case_when(
-           education %in% c("less than secondary", "some secondary", "secondary school diploma") ~ 1,
-           education %in% c("some university", "university 2 yr", "university 4 yr") ~ 2,
-           TRUE ~ 99)) %>% 
+           education %in% c("Less than secondary", "Some secondary", "Secondary school diploma") ~ 1,
+           education %in% c("Some university", "University 2 yr", "University 4 yr", "Graduate/professional degree") ~ 2,
+           TRUE ~ 99),
+         enrollment_month_gp = case_when(
+           enrollment_month==0 ~ 1,
+           enrollment_month>0 & enrollment_month<=12 ~ 2,
+           enrollment_month> 12 & enrollment_month<=24 ~ 3,
+           enrollment_month> 24 & enrollment_month<=36 ~ 4,
+           enrollment_month>36 ~ 5
+         )) %>% 
   # subjects missing EMPRO consent date
   filter(subject %notin% noconsent) %>%
   # subject with late enrollment (>45 months) 
@@ -479,8 +500,16 @@ matchdata1 = all_data %>%
   # note: 7 subjects are not in cyc_date table
   # unique(arm_set$subject[arm_set$subject %notin% medidata$cyc_date$subject])
   left_join(medidata$cyc_date %>% select(subject, visit_date, month, instance_repeat_number), by="subject", multiple="all") %>%
-  mutate(month = ifelse(subject=="170-82-099" & instance_repeat_number==10, "33", month)) %>%
-  mutate(visit_date = as.Date(ifelse(is.na(visit_date), empro_cnstdate, visit_date), origin = "1970-01-01")) %>% 
+  mutate(month = ifelse(subject=="170-82-099" & instance_repeat_number==10, "33", month),
+         visit_date = as.Date(ifelse(is.na(visit_date), empro_cnstdate, visit_date), origin = "1970-01-01"),
+         # disease state at visit
+         cohort_empro = case_when(
+           !is.na(cohort_empro) ~ cohort_empro,
+           mcrpcdat <= visit_date ~ "CRPC",
+           crpcdat <= visit_date ~ "CRPC",
+           mhspcdat <= visit_date ~ "mHSPC", 
+           TRUE ~ cohort),
+         cohort_std_empro = ifelse(cohort_empro=="CRPC", 2, 1)) %>% 
   filter(!is.na(visit_date) | arm == "intervention") %>% 
   mutate(month = ifelse(month==999, NA, month),
          age_visit = as.numeric(floor((visit_date - brthdat)/365.25)),
@@ -494,39 +523,50 @@ matchdata1 = all_data %>%
          month = ifelse(is.na(month), enrollment_month, month),
          enrollment_month = ifelse(is.na(enrollment_month), month, enrollment_month)
          ) %>% 
-  select(-diagbx_date_int, -brthdat, -race, -education, -visit_date, -empro_cnstdate) %>%
-  # 8/30/23 - this drops 2 patients in intervention arm missing cohort_std
+  select(-diagbx_date_int, -brthdat, -race, -education, -visit_date, -empro_cnstdate, -cohort_std, -cohort, -cohort_empro, -mcrpcdat, -crpcdat, -mhspcdat,enrollment_month) %>%
+  # 8/30/23 - this drops 2 patients in intervention arm missing cohort_std_empro
   # 170-20-050, 170-20-051
-  # mutate(drop = ifelse(!is.na(month) & !is.na(cohort_std) & month!=999 & !is.na(age_visit), 0, 1)) %>%
+  # mutate(drop = ifelse(!is.na(month) & !is.na(cohort_std_empro) & month!=999 & !is.na(age_visit), 0, 1)) %>%
   # group_by(subject) %>%
   # mutate(n_per_subject = n(), n_drop = sum(drop)) %>%
   # filter(n_per_subject==n_drop)
-  filter(!is.na(month) & !is.na(cohort_std) & month!=999 & !is.na(age_visit)) %>% 
+  filter(!is.na(month) & !is.na(cohort_std_empro) & month!=999 & !is.na(age_visit)) %>% 
   left_join(formatted$subject_data %>% select(subject, country), by="subject") %>%
   mutate(country_std = case_when(
     country=="Australia" ~ 1,
     country=="Canada" ~ 2,
     country=="England" ~ 3,
-    country=="USA" ~ 4))
-
-# add row for all EMPRO patients since some are missing data around their enrollment data
-# only do this for patients who don't have a match
-all_emp <- matchdata1 %>% filter(arm==1) %>% pull(subject) %>% unique()
-match_emp <- matchdata1 %>% filter(arm==1 & enrollment_month==month) %>% pull(subject) %>% unique()
-nomatch_emp <- setdiff(all_emp, match_emp)
-matchdata2 = matchdata1 %>%
-  filter(arm==1 & subject %in% nomatch_emp) %>%
-  arrange(subject, month) %>%
-  group_by(subject) %>%
-  slice(1) %>%
-  ungroup() %>%
-  mutate(age_visit = floor(age_visit + (enrollment_month - month)/12),
-         enrollment_year = floor(enrollment_year + (enrollment_month - month)/12),
-         month = enrollment_month) 
+    country=="USA" ~ 4),
+   # categorize month
+   month_gp = case_when(
+      month==0 ~ 1,
+      month>0 & month<=12 ~ 2,
+      month> 12 & month<=24 ~ 3,
+      month> 24 & month<=36 ~ 4,
+      month>36 ~ 5
+    )) %>% 
+  select(-month)
   
-# add extra rows, eliminate duplicates
-matchdata <- matchdata1 %>%
-  bind_rows(matchdata2)
+
+# # 8/7/25 - no longer needed
+# # add row for all EMPRO patients since some are missing data around their enrollment data
+# # only do this for patients who don't have a match
+# all_emp <- matchdata1 %>% filter(arm==1) %>% pull(subject) %>% unique()
+# match_emp <- matchdata1 %>% filter(arm==1 & enrollment_month==month) %>% pull(subject) %>% unique()
+# nomatch_emp <- setdiff(all_emp, match_emp)
+# matchdata2 = matchdata1 %>%
+#   filter(arm==1 & subject %in% nomatch_emp) %>%
+#   arrange(subject, month) %>%
+#   group_by(subject) %>%
+#   slice(1) %>%
+#   ungroup() %>%
+#   mutate(age_visit = floor(age_visit + (enrollment_month - month)/12),
+#          enrollment_year = floor(enrollment_year + (enrollment_month - month)/12),
+#          month = enrollment_month) 
+#   
+# # add extra rows, eliminate duplicates
+# matchdata <- matchdata1 %>%
+#   bind_rows(matchdata2)
 
 # check number of subjects in matchdata
 matchdata %>% filter(arm==1) %>% pull(subject) %>% unique() %>% length()
@@ -538,21 +578,21 @@ matchdata %>% filter(arm==1) %>% pull(subject) %>% unique() %>% length()
 
 # reduce data
 arm_set <- matchdata[matchdata$arm == 1 &
-                    (matchdata$month == matchdata$enrollment_month), ] 
+                    (matchdata$month_gp == matchdata$enrollment_month_gp), ] 
 # patients without data entered get dropped at this step
 comp_set  <- matchdata[matchdata$arm == 0 &
-                    (matchdata$month %in% unique(arm_set$month)), ]
+                    (matchdata$month_gp %in% unique(arm_set$month_gp)), ]
 reduced_data <- dplyr::bind_rows(arm_set, comp_set)
 
 
 # add propensity scores
-fm <- as.formula(arm ~ as.factor(country_std) + enrollment_year + enrollment_month + 
-                   as.factor(cohort_std) + age_visit + as.factor(race_gp) + as.factor(educ_gp))
+fm <- as.formula(arm ~ as.factor(country_std) + enrollment_year + as.factor(enrollment_month_gp) + 
+                   as.factor(cohort_std_empro) + age_visit + as.factor(race_gp) + as.factor(educ_gp))
 vars <- all.vars(fm)
 scored_data <- score_data(reduced_data = reduced_data,
                           model_type = "logistic", match_on = "logit",
                           fm = fm, treat = "arm",
-                          tm = "month", entry = "enrollment_month", id = "subject")
+                          tm = "month_gp", entry = "enrollment_month_gp", id = "subject")
 
 # perform matching
 # output <- rollmatch(scored_data, data=matchdata, treat = "arm",
@@ -563,7 +603,7 @@ scored_data <- score_data(reduced_data = reduced_data,
 # Create pool of possible matches
 comparison_pool <-
   dplyr::inner_join(scored_data[scored_data$arm == 1, ],
-                    scored_data[scored_data$arm == 0, ], by = "month", multiple = "all",
+                    scored_data[scored_data$arm == 0, ], by = "month_gp", multiple = "all",
                     relationship = "many-to-many")
 comparison_pool$difference <-
   abs(comparison_pool$score.x - comparison_pool$score.y)
