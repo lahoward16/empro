@@ -531,7 +531,7 @@ matchdata = all_data %>%
            enrollment_month>36 ~ 5
          )) %>% 
   select(-diagbx_date_int, -brthdat, -race, -education, -visit_date, -empro_cnstdate, -cohort_std, -cohort, -cohort_empro, -mcrpcdat, -crpcdat, -mhspcdat) %>%
-  # 8/30/23 - this drops 2 patients in intervention arm missing cohort_std_empro
+  # 8/30/23 - this drops 2 patients in intervention arm missing cohort_std
   # 170-20-050, 170-20-051
   # mutate(drop = ifelse(!is.na(month) & !is.na(cohort_std_empro) & month!=999 & !is.na(age_visit), 0, 1)) %>%
   # group_by(subject) %>%
@@ -889,6 +889,7 @@ var_label(empro_data) <- list(
   enrollment_month = "Study visit at entry",
   enrollment_month_gp2 = "IRONMAN visit at entry",
   cohort = "Study cohort",
+  cohort_empro = "Study cohort",
   education = "Education level",
   yn_eortc_0 = "EORTC QLQ-C30 submitted at baseline",
   yn_eortc_3 = "EORTC QLQ-C30 submitted at 3 mo",
