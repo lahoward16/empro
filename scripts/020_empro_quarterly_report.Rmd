@@ -191,8 +191,8 @@ analysis_data %>%
                                                "{min}, {max}")) %>%
   bold_labels() %>%
   modify_header(label = "",stat_1 = "**Proxy Control** N = {n}", 
-                           stat_2 = "**Intervention** N = {n}") %>% 
-  add_difference()
+                           stat_2 = "**Intervention** N = {n}")  
+  #add_difference()
 
 # to output to .docx:
 # tbl %>%
