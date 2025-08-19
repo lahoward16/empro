@@ -16,8 +16,8 @@ library(purrr)
 library(readxl)
 
 # date
-date1="2025-05-19"
-date2="2025-05-19"
+date1="2025-08-11"
+date2="2025-08-11"
 
 # load ironman package
 # devtools::install_github("tgerke/ironer", auth_token="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")
@@ -717,6 +717,7 @@ not_matched <- ptlist[ptlist %notin% matches$arm_subject]; not_matched
 # February 2025: "170-37-050" "170-48-083" "170-48-088" "170-48-090" "170-48-091"
 # May 2025: "170-48-083" "170-48-088" "170-48-091"
 # August 2025: all matched (same dataset as previous but categorized enrollment month and fixed a few things)
+# August 2025 (new data): all matched
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -872,7 +873,14 @@ empro_data <- all_data %>%
       !is.na(suboffstudyreason) & arm=="intervention" ~ 1,
       is.na(suboffstudyreason) & arm=="intervention" ~ 0,
       TRUE ~ NA),
-    remaining_q = ifelse(off_study==1, 0, 12-last_empro_q)) 
+    remaining_q = ifelse(off_study==1, 0, 12-last_empro_q)) %>% 
+  # fix cohort variable
+  select(-cohort_std_empro, -cohort_empro) %>% 
+  left_join(matchdata %>% select(subject, enrollment_month, cohort_std_empro), 
+            by=c("subject", "enrollment_month")) %>% 
+  mutate(cohort_empro = ifelse(cohort_std_empro==1, "mHSPC", "CRPC")) %>% 
+  distinct()
+              
 
 # which EMPRO visits a patient has completed
 visits <- empro_data %>%
