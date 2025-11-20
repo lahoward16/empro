@@ -16,8 +16,8 @@ library(purrr)
 library(readxl)
 
 # date
-date1="2025-08-11"
-date2="2025-08-11"
+date1="2025-11-14"
+date2="2025-11-14"
 
 # load ironman package
 # devtools::install_github("tgerke/ironer", auth_token="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")
@@ -125,6 +125,16 @@ formatted$empro_off <- medidata$sub_off %>%
 formatted$death_data <- medidata$pstatus %>%
   select(subject, deathdate_int, cod_std) %>%
   mutate(dead=1)
+
+## Censor date
+# last cycle date 
+formatted$censor_date <- medidata$cyc_date %>% 
+  select(subject, visit_date) %>% 
+  arrange(desc(visit_date)) %>% 
+  group_by(subject) %>% 
+  slice(1) %>% 
+  rename(censor_date = visit_date)
+
 
 # pull CRPC/HSPC diagnosis dates
 # find diagnosis date closest to but before EMPRO consent date
@@ -718,6 +728,7 @@ not_matched <- ptlist[ptlist %notin% matches$arm_subject]; not_matched
 # May 2025: "170-48-083" "170-48-088" "170-48-091"
 # August 2025: all matched (same dataset as previous but categorized enrollment month and fixed a few things)
 # August 2025 (new data): all matched
+# November 2025: all matched
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -831,6 +842,10 @@ empro_data <- all_data %>%
     diag_enroll = interval(diagbx_date_int, empro_cnstdate) %/% months(1),
     dead = ifelse(is.na(dead), 0, dead),
     dead = factor(dead, levels=ynlev2, labels=ynlab2),
+    limbo = ifelse(dead=="Yes", 
+                   time_length(deathdate_int - empro_cnstdate, unit = "month"),
+                   time_length(censor_date - empro_cnstdate, unit = "month")),
+    dead12 = ifelse(dead=="Yes" & limbo<12, 1, 0),
     pain_hard_trigger = ifelse(is.na(pain_hard_trigger) & arm=="intervention", 0, pain_hard_trigger),
     pain_hard_trigger = factor(pain_hard_trigger, levels=ynlev2, labels=ynlab2),
     any_soft_trigger = ifelse(is.na(any_soft_trigger),0,1),

@@ -43,7 +43,7 @@ library(ggconsort)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20250813.RData")
+empro <- here::here("data", "EMPRO_data_20251120.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -82,7 +82,7 @@ The "proxy control" group is selected through propensity score methods using the
 
 -   Race (White, Black, Other)
 
--   educ_gp level (secondary school or less, college or more, unknown)
+-   Education level (secondary school or less, college or more, unknown)
 
 
 `rollmatch` selects the control participant as well as the theoretical entry time for the control participant to best match the participants in the intervention arm.
@@ -177,7 +177,6 @@ analysis_data %>%
          country,
          age_baseline,
          race_gp,
-         diag_enroll,
          year_emp_enrollment,
          enrollment_month_gp,
          crpc_per,
