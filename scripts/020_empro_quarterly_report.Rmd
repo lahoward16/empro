@@ -43,7 +43,7 @@ library(ggconsort)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20251120.RData")
+empro <- here::here("data", "EMPRO_data_20260319.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -95,14 +95,13 @@ The consort diagram below shows the number of EMPRO participants who were matche
 
 ```{r, fig.width = 7, fig.height = 5}
 # create cohorts
-study_cohorts <- 
-  empro_data %>%
+study_cohorts <- empro_data %>%
   filter(arm=="intervention") %>%
   cohort_start("Patients consented to EMRPO") %>%
   # Define cohorts using named expressions --------------------
   # Notice that you can use previously defined cohorts in subsequent steps
   cohort_define(
-    consent_date = .full %>% filter(!is.na(empro_cnstdate)),
+    consent_date = .full %>% dplyr::filter(!is.na(empro_cnstdate)),
     disease_cohort = consent_date %>% filter(!is.na(cohort_empro)),
     enroll = disease_cohort %>% filter(enrollment_month<=45),
     matched = enroll %>% filter(not_matched==0),
@@ -181,7 +180,8 @@ analysis_data %>%
          enrollment_month_gp,
          crpc_per,
          educ_gp,
-         starts_with("yn_eortc")) %>%
+         starts_with("yn_eortc"),
+         ecog2) %>%
   tbl_summary(by = arm,
               missing = "ifany",
               missing_text = "N missing",
@@ -278,7 +278,8 @@ analysis_data %>%
          yn_eortc_3,
          yn_eortc_6,
          yn_eortc_9,
-         yn_eortc_12) %>%
+         yn_eortc_12,
+         ecog2) %>%
   tbl_summary(by = site,
               missing = "ifany",
               missing_text = "N missing",
@@ -314,7 +315,8 @@ analysis_data %>%
          yn_eortc_3,
          yn_eortc_6,
          yn_eortc_9,
-         yn_eortc_12) %>%
+         yn_eortc_12,
+         ecog2) %>%
   tbl_summary(by = site,
               missing = "ifany",
               missing_text = "N missing",

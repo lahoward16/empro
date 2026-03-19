@@ -16,8 +16,8 @@ library(purrr)
 library(readxl)
 
 # date
-date1="2025-11-14"
-date2="2025-11-14"
+date1="2026-03-06"
+date2="2026-03-06"
 
 # load ironman package
 # devtools::install_github("tgerke/ironer", auth_token="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")
@@ -442,6 +442,10 @@ formatted$eortc_yn = formatted$eortc %>%
               pattern = "eortc", replacement = "yn_eortc", 
               matches("eortc"))
 
+# ECOG Scores
+ecog <- medidata$vs %>% 
+  select(subject, ecog_date = pex_date_int, ecog=ecog_std)
+
 ###############################
 # score PROAE CTC questionnaires
 ###############################
@@ -729,6 +733,7 @@ not_matched <- ptlist[ptlist %notin% matches$arm_subject]; not_matched
 # August 2025: all matched (same dataset as previous but categorized enrollment month and fixed a few things)
 # August 2025 (new data): all matched
 # November 2025: all matched
+# March 2026: all matched
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
@@ -894,7 +899,39 @@ empro_data <- all_data %>%
   left_join(matchdata %>% select(subject, enrollment_month, cohort_std_empro), 
             by=c("subject", "enrollment_month")) %>% 
   mutate(cohort_empro = ifelse(cohort_std_empro==1, "mHSPC", "CRPC")) %>% 
-  distinct()
+  distinct() %>% 
+  # merge in ecog data - additional steps below to select baseline value
+  left_join(ecog, by="subject") %>% 
+  mutate(ecog_to_cnst = time_length(empro_cnstdate - ecog_date, unit="month"))
+
+    
+# flag indicating whether patients only have ECOG after baseline
+patient_flag <- empro_data %>%
+  group_by(subject) %>%
+  summarise(
+    all_ecog_to_cnst_zero = if_else(
+      any(!is.na(ecog_to_cnst)) & all(ecog_to_cnst < 0, na.rm = TRUE),
+      "yes", "no"
+    ),
+    .groups = "drop"
+  )
+
+# ECOG score closest to baseline 
+# if patient only has ECOG after baseline pick first
+# otherwise pick first ECOG before baseline
+empro_data <- empro_data %>%  
+  left_join(patient_flag, by="subject") %>% 
+  filter(is.na(ecog_to_cnst) | !(ecog_to_cnst<0 & all_ecog_to_cnst_zero=="no")) %>% 
+  mutate(ecog_to_cnst_sort = abs(ecog_to_cnst)) %>% 
+  arrange(ecog_to_cnst_sort) %>%   
+  group_by(subject) %>% 
+  slice(1) %>% 
+  select(-ecog_to_cnst_sort, -all_ecog_to_cnst_zero) %>% 
+  mutate(ecog2 = ifelse(ecog>=2, "2-4", paste(ecog))) %>% 
+  set_variable_labels(ecog = "ECOG at baseline",
+                      ecog2 = "ECOG at baseline") %>% 
+  ungroup()
+
               
 
 # which EMPRO visits a patient has completed
