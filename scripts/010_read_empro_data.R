@@ -932,22 +932,56 @@ empro_data <- empro_data %>%
                       ecog2 = "ECOG at baseline") %>% 
   ungroup()
 
-              
+
 
 # which EMPRO visits a patient has completed
 visits <- empro_data %>%
   select(subject, enrollment_month) %>%
+  # merge cycle info
   left_join(medidata$cyc_date %>% select(subject, visit_date, month, instance_repeat_number), by="subject", multiple="all") %>%
-  mutate(month = as.numeric(month)) %>%
-  mutate(month = ifelse(subject=="170-82-099" & instance_repeat_number==10, 33, month)) %>%
+  mutate(month = as.numeric(month),
+         month = ifelse(subject=="170-82-099" & instance_repeat_number==10, 33, month)) %>%
   filter((month >= enrollment_month | is.na(month)) & month!=999) %>%
-  mutate(month_on_empro = paste0("completed_month_", month - enrollment_month),
-         complete=1) %>%
-  select(subject, month_on_empro, complete) %>%
-  unique() %>%
+  mutate(empro_month = month - enrollment_month) %>% 
+  select(subject, empro_month, visit_date) %>%
+  filter(empro_month<=12) %>% 
+  unique() %>% 
+  # add missing visits for each subject 
+  group_by(subject) %>%
+  complete(empro_month = c(0, 3, 6, 9, 12)) %>%
+  arrange(subject, empro_month) %>% 
+  # add in empro consent date
+  left_join(empro_data %>% select(subject, empro_cnstdate), by="subject") %>% 
+  # impute missing visit dates
+  mutate(visit_date_imp = as.Date(ifelse(!is.na(visit_date), visit_date, empro_cnstdate %m+% months(empro_month)))) %>% 
+  # merge off study info
+  left_join(medidata$off %>% select(subject, offsdt_int, offstudyreason), by="subject") %>%
+  left_join(medidata$sub_off %>% select(subject, sub_offstdat_int, suboffstudyreason), by="subject") %>% 
+  mutate(month_on_empro = paste0("completed_month_", empro_month),
+         complete = case_when(
+           !is.na(visit_date) ~ 1,
+            visit_date_imp > sub_offstdat_int - 90 & suboffstudyreason %in% 
+             c("patient did not complete PROMS", "patient did not complete PROMS", "Patient did not complete PROMs",
+               "Clinical deterioration",
+               "Lost to Follow-up", 
+               "Physician decision",
+               "TrueNTH technical bug",
+               "Withdrawal by subject") ~ 2,
+           visit_date_imp > offsdt_int - 90 & offstudyreason %in% 
+             c("Clinical deterioration", 
+               "Lost to Follow-up", 
+               "Physician decision", 
+               "Withdrawal by subject") ~ 2,
+           visit_date_imp > sub_offstdat_int & suboffstudyreason=="Death" ~ 3,
+           visit_date_imp > offsdt_int & offstudyreason=="Death" ~ 3,
+           TRUE ~ 0
+         )) %>% 
+  select(subject, month_on_empro, complete) %>% 
   pivot_wider(id_cols = "subject",
               names_from=month_on_empro,
               values_from=complete)
+
+  
 empro_data <- empro_data %>%
   left_join(visits, by="subject")
 

@@ -43,7 +43,7 @@ library(ggconsort)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20260319.RData")
+empro <- here::here("data", "EMPRO_data_20260331.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -226,14 +226,18 @@ fig_data <- analysis_data %>%
   ungroup() %>%
   # categorize missing pattern
   mutate(missing = case_when(
+    completed_month==2 ~ 5,
+    completed_month==3 ~ 6,
     (complete==0 & completed_month==1) | (complete==0 & as.numeric(time) <= last_complete) ~ 3,
     complete==0 & as.numeric(time) > last_complete  ~ 4,
     complete>0 & complete<100 ~ 2,
     complete==100 ~ 1),
-    missing = factor(missing, levels = 1:4, labels=c("Fully completed", 
-                                                     "Partially completed",
-                                                     "Not completed (missing)", 
-                                                     "Visit has not happened")),
+    missing = factor(missing, levels = 1:6, labels=c("EORTC fully completed", 
+                                                     "EORTC partially completed",
+                                                     "EORTC not completed (missing)", 
+                                                     "Visit not documented",
+                                                     "Patient withdrew from study",
+                                                     "Patient deceased")),
          time = factor(time, levels=seq(0,12,3))) %>%
   group_by(subject) %>%
   mutate(mean = mean(complete)) %>%
@@ -253,7 +257,7 @@ ggplot(fig_data2, aes(time, id, fill= missing)) +
   facet_grid(cols=vars(arm), scales = "free_y") + 
   labs(y="Subject", 
        x="Month") +
-  scale_fill_manual(name = "", values = c("#7bccc4", "#43a2ca", "#0868ac", "#fc8d59"))
+  scale_fill_manual(name = "", values = c("#7bccc4", "#43a2ca", "#0868ac", "#fc8d59", "grey40", "grey20"))
   
 
 ```
