@@ -43,7 +43,7 @@ library(ggconsort)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20260331.RData")
+empro <- here::here("data", "EMPRO_data_20260408.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -102,13 +102,15 @@ study_cohorts <- empro_data %>%
   # Notice that you can use previously defined cohorts in subsequent steps
   cohort_define(
     consent_date = .full %>% dplyr::filter(!is.na(empro_cnstdate)),
-    disease_cohort = consent_date %>% filter(!is.na(cohort_empro)),
+    elig = consent_date %>% filter(!suboffstudyreason=="Screen Failure" | is.na(suboffstudyreason)),
+    disease_cohort = elig %>% filter(!is.na(cohort_empro)),
     enroll = disease_cohort %>% filter(enrollment_month<=45),
     matched = enroll %>% filter(not_matched==0),
     # anti_join is useful for counting exclusions -------------
     excluded = anti_join(.full, enroll, by = "subject"),
     excluded_consent_date = anti_join(.full, consent_date, by = "subject"),
-    excluded_disease_cohort = anti_join(consent_date, disease_cohort, by = "subject"),
+    excluded_elig = anti_join(consent_date, elig, by="subject"),
+    excluded_disease_cohort = anti_join(elig, disease_cohort, by = "subject"),
     excluded_enroll = anti_join(disease_cohort, enroll, by = "subject"),
     not_matched = anti_join(enroll, matched, by = "subject")
   ) %>%
@@ -122,6 +124,7 @@ study_cohorts <- empro_data %>%
     excluded_consent_date = "No consent date",
     excluded_disease_cohort = "No disease state",
     excluded_enroll = "Late EMPRO enrollment",
+    excluded_elig = "Screen failure",
     not_matched = "No match available"
   )
 
@@ -135,7 +138,8 @@ study_consort <- study_cohorts %>%
       '{cohort_count_adorn(study_cohorts, excluded)}<br>
       • {cohort_count_adorn(study_cohorts, excluded_consent_date)}<br>
       • {cohort_count_adorn(study_cohorts, excluded_disease_cohort)}<br>
-      • {cohort_count_adorn(study_cohorts, excluded_enroll)}
+      • {cohort_count_adorn(study_cohorts, excluded_enroll)}<br>
+      • {cohort_count_adorn(study_cohorts, excluded_elig)}
       ')
   ) %>%
   consort_box_add(

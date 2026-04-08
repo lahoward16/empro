@@ -1,5 +1,5 @@
 #######################################
-# EMPRO study
+# EMPRO study ------------------------
 # Create dataset for quarterly reports
 #######################################
 
@@ -39,7 +39,7 @@ formatted = list()
 `%notin%` <- Negate(`%in%`)
 
 ###############################
-# read in data
+# read in data --------
 ###############################
 
 ## Load Medidata
@@ -479,6 +479,8 @@ noconsent <- all_data %>% filter(arm=="intervention" & is.na(empro_cnstdate)) %>
 # subjects recruited after 45 months (exclude)
 lateenroll <- all_data %>% filter(arm=="intervention" & enrollment_month>45) %>% pull(subject)
 
+# screen fail
+screenfail <- all_data %>% filter(suboffstudyreason =="Screen Failure") %>% pull(subject)
 
 # match on:
     # country
@@ -504,7 +506,8 @@ matchdata = all_data %>%
   filter(subject %notin% noconsent) %>%
   # subject with late enrollment (>45 months) 
   filter(subject %notin% lateenroll) %>%
-  # note: 7 subjects are not in cyc_date table
+  # filter screen failure
+  filter(subject %notin% screenfail) %>% 
   # unique(arm_set$subject[arm_set$subject %notin% medidata$cyc_date$subject])
   left_join(medidata$cyc_date %>% 
               select(subject, visit_date, month, instance_repeat_number) %>% 
@@ -985,6 +988,10 @@ visits <- empro_data %>%
 empro_data <- empro_data %>%
   left_join(visits, by="subject")
 
+# limit trigger data to patients in EMPRO
+triggers_long <- triggers_long %>% 
+  filter(subject %in% empro_data$subject)
+
 
 # label variables
 var_label(empro_data) <- list(
@@ -1062,7 +1069,7 @@ var_label(empro_data) <- list(
 ##Save the result for analysis 
 today_rec <- format(Sys.Date(), format="%Y%m%d")
 savfile<-here::here("data", paste0("EMPRO_data_", today_rec, ".RData"))
-save(empro_data, not_matched, noconsent, lateenroll, triggers_long, file= savfile)
+save(empro_data, not_matched, noconsent, lateenroll, screenfail, triggers_long, file= savfile)
 tools::md5sum(savfile)
 
     
