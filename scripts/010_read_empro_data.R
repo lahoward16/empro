@@ -32,7 +32,6 @@ library(ironer)
 formatted = list()
 
 ### questions
-# hospitalizations?
 
 # new function
 `not.na` <- Negate(`is.na`)
@@ -125,6 +124,20 @@ formatted$empro_off <- medidata$sub_off %>%
 formatted$death_data <- medidata$pstatus %>%
   select(subject, deathdate_int, cod_std) %>%
   mutate(dead=1)
+
+# pull hospitalizations from SAE
+sae <- medidata$sae2 %>%
+  filter(saehosp==1) %>% 
+  select(subject, saedate_int) %>% 
+  arrange(subject, saedate_int) %>% 
+  distinct() 
+  # group_by(subject) %>% 
+  # mutate(n = row_number(),
+  #        name = paste0("sae_date", n)) %>% 
+  # ungroup() %>% 
+  # pivot_wider(id_cols = "subject",
+  #              names_from=name,
+  #              values_from=saedate_int)
 
 ## Censor date
 # last cycle date 
@@ -225,15 +238,14 @@ triggers_long <- qre_timeline %>%
   # filter out empty records
   filter(!is.na(EMPRO_questionnaire_completion_date) & status=="Completed") %>%
   # separate soft and hard triggers into separate variables for each domain
-  mutate(soft_anxious = ifelse(grepl("anxious", soft_trigger_domains) & !grepl("anxious", hard_trigger_domains), 1, 0),
-         soft_discouraged = ifelse(grepl("discouraged", soft_trigger_domains) & !grepl("discouraged", hard_trigger_domains), 1, 0),
-         soft_fatigue = ifelse(grepl("fatigue", soft_trigger_domains) & !grepl("fatigue", hard_trigger_domains), 1, 0),
-         soft_general_pain = ifelse(grepl("general_pain", soft_trigger_domains) & !grepl("general_pain", hard_trigger_domains), 1, 0),
-         soft_insomnia = ifelse(grepl("insomnia", soft_trigger_domains) & !grepl("insomnia", hard_trigger_domains), 1, 0),
-         soft_joint_pain = ifelse(grepl("joint_pain", soft_trigger_domains) & !grepl("joint_pain", hard_trigger_domains), 1, 0),
-         soft_sad = ifelse(grepl("sad", soft_trigger_domains) & !grepl("sad", hard_trigger_domains), 1, 0),
-         soft_social_isolation = ifelse(grepl("social_isolation", soft_trigger_domains) & 
-                                          !grepl("social_isolation", hard_trigger_domains), 1, 0),
+  mutate(soft_anxious = ifelse(grepl("anxious", soft_trigger_domains), 1, 0),
+         soft_discouraged = ifelse(grepl("discouraged", soft_trigger_domains), 1, 0),
+         soft_fatigue = ifelse(grepl("fatigue", soft_trigger_domains), 1, 0),
+         soft_general_pain = ifelse(grepl("general_pain", soft_trigger_domains), 1, 0),
+         soft_insomnia = ifelse(grepl("insomnia", soft_trigger_domains), 1, 0),
+         soft_joint_pain = ifelse(grepl("joint_pain", soft_trigger_domains), 1, 0),
+         soft_sad = ifelse(grepl("sad", soft_trigger_domains), 1, 0),
+         soft_social_isolation = ifelse(grepl("social_isolation", soft_trigger_domains), 1, 0),
          hard_anxious = ifelse(grepl("anxious", hard_trigger_domains), 1, 0),
          hard_discouraged = ifelse(grepl("discouraged", hard_trigger_domains), 1, 0),
          hard_fatigue = ifelse(grepl("fatigue", hard_trigger_domains), 1, 0),
@@ -319,29 +331,29 @@ triggers_long <- qre_timeline %>%
 # Triggers data
 # Question: how to tell if patient engaged in TrueNTH self management tool
 # Question: does clinician_status mean that they contacted the patient?
-  # function to erase soft triggers that are also hard triggers
+  # function to erase soft triggers that are also hard triggers - 4/9/26 - don't erase these
 formatted$triggers <- qre_timeline %>%
   rename(subject=study_id) %>%
   # filter out empty records
   filter(!is.na(EMPRO_questionnaire_completion_date) & status=="Completed") %>%
-  # separate soft triggers into separate variables
-  separate_wider_delim(soft_trigger_domains, ", ", names_sep = "", too_few = "align_start") %>%
-  # transpose to long
-  pivot_longer(cols = starts_with("soft_trigger_domains"),
-               names_to = "num",
-               names_prefix = "soft_trigger_domains",
-               values_to = "soft_trigger",
-               values_drop_na = TRUE) %>%
-  # replace repeated soft triggers to NA (double listed in hard and soft)
-  rowwise() %>%
-  mutate(soft_trigger = ifelse(grepl(soft_trigger, hard_trigger_domains), NA, soft_trigger)) %>%
-  ungroup() %>%
-  # mutate back to wide
-  pivot_wider(id_cols = c(subject, visit, hard_trigger_domains, clinician_status, content_domains_accessed),
-              names_from = num,
-              names_prefix = "soft_trigger_domains", 
-              values_from = soft_trigger) %>%
-  # unite soft triggers into one column
+  # # separate soft triggers into separate variables
+  # separate_wider_delim(soft_trigger_domains, ", ", names_sep = "", too_few = "align_start") %>%
+  # # transpose to long
+  # pivot_longer(cols = starts_with("soft_trigger_domains"),
+  #              names_to = "num",
+  #              names_prefix = "soft_trigger_domains",
+  #              values_to = "soft_trigger",
+  #              values_drop_na = TRUE) %>%
+  # # replace repeated soft triggers to NA (double listed in hard and soft)
+  # rowwise() %>%
+  # mutate(soft_trigger = ifelse(grepl(soft_trigger, hard_trigger_domains), NA, soft_trigger)) %>%
+  # ungroup() %>%
+  # # mutate back to wide
+  # pivot_wider(id_cols = c(subject, visit, hard_trigger_domains, clinician_status, content_domains_accessed),
+  #             names_from = num,
+  #             names_prefix = "soft_trigger_domains", 
+  #             values_from = soft_trigger) %>%
+  # # unite soft triggers into one column
   unite(soft_trigger_domains, starts_with("soft_trigger_domains"), sep = ", ", na.rm=TRUE) %>%
   mutate(soft_trigger_domains = ifelse(soft_trigger_domains=="", NA, soft_trigger_domains), 
          # number of surveys that released a trigger 
@@ -905,7 +917,13 @@ empro_data <- all_data %>%
   distinct() %>% 
   # merge in ecog data - additional steps below to select baseline value
   left_join(ecog, by="subject") %>% 
-  mutate(ecog_to_cnst = time_length(empro_cnstdate - ecog_date, unit="month"))
+  mutate(ecog_to_cnst = time_length(empro_cnstdate - ecog_date, unit="month")) %>% 
+  # append n to site
+  group_by(site) %>% 
+  mutate(n_site = n()) %>% 
+  ungroup() %>% 
+  mutate(site_n = paste0(site, "\n(n=", n_site, ")"),
+         arm_c = str_to_title(arm))
 
     
 # flag indicating whether patients only have ECOG after baseline
@@ -918,6 +936,16 @@ patient_flag <- empro_data %>%
     ),
     .groups = "drop"
   )
+
+# hospitalizations with 6 and 12 mo of empro enrollment
+sae_empro <- sae %>% 
+  inner_join(empro_data %>% select(subject, empro_cnstdate), by="subject") %>% 
+  mutate(sae_6mo = ifelse(saedate_int<empro_cnstdate+183 & saedate_int>empro_cnstdate, 1, 0),
+         sae_12mo = ifelse(saedate_int<empro_cnstdate+365 & saedate_int>empro_cnstdate, 1, 0)) %>% 
+  group_by(subject) %>% 
+  summarize(hosp_6mo = max(sae_6mo),
+            hosp_12mo = max(sae_12mo))
+  
 
 # ECOG score closest to baseline 
 # if patient only has ECOG after baseline pick first
@@ -933,7 +961,13 @@ empro_data <- empro_data %>%
   mutate(ecog2 = ifelse(ecog>=2, "2-4", paste(ecog))) %>% 
   set_variable_labels(ecog = "ECOG at baseline",
                       ecog2 = "ECOG at baseline") %>% 
-  ungroup()
+  ungroup() %>% 
+  # merge in hospitalization data
+  left_join(sae_empro, by="subject") %>% 
+  mutate(hosp_6mo = replace_na(hosp_6mo, 0),
+         hosp_6mo = factor(hosp_6mo, levels=ynlev2, labels=ynlab2),
+         hosp_12mo = replace_na(hosp_12mo, 0),
+         hosp_12mo = factor(hosp_12mo, levels=ynlev2, labels=ynlab2))
 
 
 
@@ -990,7 +1024,7 @@ empro_data <- empro_data %>%
 
 # limit trigger data to patients in EMPRO
 triggers_long <- triggers_long %>% 
-  filter(subject %in% empro_data$subject)
+  filter(subject %in% empro_data$subject & subject!=lateenroll)
 
 
 # label variables
@@ -1057,7 +1091,9 @@ var_label(empro_data) <- list(
   percent_eortc_complete_3 = "% EORTC complete at 3 mo",
   percent_eortc_complete_6 = "% EORTC complete at 6 mo",
   percent_eortc_complete_9 = "% EORTC complete at 9 mo",
-  percent_eortc_complete_12 = "% EORTC complete at 12 mo")
+  percent_eortc_complete_12 = "% EORTC complete at 12 mo",
+  hosp_6mo = "Hospitalization within 6mo",
+  hosp_12mo = "Hospitalization within 12mo")
   # q_month_1 = "Completed PRO-CTCAE questionnare at 1 mo",
   # q_month_2 = "Completed PRO-CTCAE questionnare at 2 mo",
   # q_month_3 = "Completed PRO-CTCAE questionnare at 3 mo",

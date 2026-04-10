@@ -205,8 +205,7 @@ analysis_data %>%
 
 <br> <br>
 
-# Completeness of EORTC-QLQ30 questionnaire at each study time point
-
+# Completeness of EORTC QLQ-C30 questionnaire at each study time point
 ```{r}
 fig_data <- analysis_data %>%
   select(subject, arm, starts_with("percent_eortc_complete")) %>%
