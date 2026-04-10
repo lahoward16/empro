@@ -1,0 +1,625 @@
+---
+title: "EMPRO Modeling"
+author: "Lauren Howard"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+    number_sections: true
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("../reports/EMPRO modeling ",Sys.Date(),'.html')) })
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = TRUE, echo = TRUE, warning = FALSE, message = FALSE,
+                      fig.width = 12, fig.height = 8, fig.align = 'center')
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(here)
+library(gtsummary)
+library(ggplot2)
+library(kableExtra)
+library(ggpubr)
+library(haven)
+library(labelled)
+library(ggmosaic)
+library(gt)
+library(dplyr)
+library(gtsummary)
+library(flextable)
+library(ggconsort)
+library(cvcrand)
+library(lme4) 
+library(lmerTest)
+library(mice)
+library(broom.mixed)
+library(devtools)
+
+
+```
+
+```{r readdata, echo = F, include = F}
+# load data set
+empro <- here::here("data", "EMPRO_data_20260408.RData")
+load(empro)
+
+#make enrollment month factor 
+empro_data$enrollment_month1 = factor(empro_data$enrollment_month)
+
+#make new variable for yes/no CRPC
+empro_data$crpc_per = empro_data$cohort_empro != "mHSPC"
+
+# add variable for not matched
+empro_data$not_matched = ifelse(empro_data$subject %in% not_matched, 1, 0)
+
+#relabel new vars
+var_label(empro_data) <- list(
+  crpc_per = "CRPC (vs. mHSPC)", 
+  enrollment_month1 = "Study visit at entry")
+
+# read in site-level data
+site_data <- read.csv("H:/GU/EMPRO/Randomization/randscheme_final.csv") %>% 
+  rename(site_country = Country,
+         site_timetodx = timetodx,
+         site_crpc = CRPC)
+
+# analysis data set (remove exclusions)
+analysis_data <- empro_data %>% 
+  filter(!is.na(empro_cnstdate) & enrollment_month<=45 & !is.na(cohort_empro)) %>%
+  mutate(enrollment_month1 = fct_drop(enrollment_month1)) %>%
+  mutate(sitenew = case_when(
+    site=="Cross Cancer Institute (Alberta Health Services)" ~ "Cross Cancer Institute",
+    site=="Guys St. Thomas NHS Foundation Trust" ~ "Guys and St. Thomas NHS Foundation Trust",
+    site=="Royal Brisbane & Women’s Hospital" ~ "Royal Brisbane & Women's Hospital",
+    site=="St. Vincent’s Hospital Sydney" ~ "St. Vincent's Hospital Sydney",
+    site=="University of Virgina (UVA)" ~ "University of Virginia", 
+    site=="Royal Brisbane & Women's Hospital" ~ "Queensland University of Technology",
+    site=="NewYork-Presbyterian Brooklyn Methodist Hospital" ~ "Weill Cornell Medical Center",
+    TRUE ~ site),
+    ecog3 = replace_na(ecog2, "Unknown")) %>% 
+  left_join(site_data, by = c("sitenew"="sitegp")) %>% 
+  mutate(# re-order - this matches the order from when they were randomized (must match constrained space file)
+    sitenew = factor(sitenew,
+                           levels = c("Queensland University of Technology",
+                                      "Eastern Health",
+                                      "St. Vincent's Hospital Sydney",
+                                      "Macquarie University Hospital",
+                                      "Cross Cancer Institute",
+                                      "Ottawa Hospital Cancer Centre",
+                                      "The Royal Marsden NHS Foundation Trust",
+                                      "Lancashire Teaching Hospitals NHS Foundation Trust",
+                                      "Guys and St. Thomas NHS Foundation Trust",
+                                      "University Hospital Southampton NHS Foundation Trust",
+                                      "Duke Comprehensive Cancer Center",
+                                      "Memorial Sloan Kettering Cancer Center",
+                                      "Weill Cornell Medical Center",
+                                      "University of Virginia")),
+    eortc_0_log = log(max(eortc_0, na.rm=TRUE) + 1 - eortc_0)) %>% 
+  set_variable_labels(ecog3="ECOG",
+                      enrollment_month1 = "Study visit at entry")
+
+# complete data at 6 mo
+analysis_data2 <- analysis_data %>% 
+  filter(!is.na(eortc_6)) 
+
+# narrow down dataset to only needed variables
+to_impute <- analysis_data %>% 
+  select(eortc_6, arm, ecog2, race_gp, educ_gp, crpc_per, sitenew)
+
+# patient counts
+n_crpc <- analysis_data %>% filter(cohort=="CRPC" & arm=="intervention") %>% nrow()
+n_mhspc <- analysis_data %>% filter(cohort=="mHSPC" & arm=="intervention") %>% nrow()
+n_intervention <- analysis_data %>% filter(arm=="intervention") %>% nrow()
+
+```
+
+# EORTC Distribution
+
+## 6 Months
+```{r}
+
+ggplot(analysis_data, aes(x = eortc_6)) +
+  geom_histogram(binwidth = 10, fill = "steelblue", color = "black") +
+  labs(title = "EORTC at 6 Months", x = "EORTC Score", y = "Frequency") +
+  theme_minimal()
+
+ggplot(analysis_data, aes(x = eortc_6)) +
+  geom_histogram(binwidth = 10, fill = "steelblue", color = "black") +
+  labs(title = "EORTC at 6 Months", x = "EORTC Score", y = "Frequency") +
+  theme_minimal() +
+  facet_wrap(~ arm)
+
+```
+
+
+# Permutation test
+Complete case analysis
+
+## Unadjusted
+Only adjusted for subject-level covariates
+```{r}
+# should be:
+#                                             clustername allocation
+# 1                   Queensland University of Technology          0
+# 2                                        Eastern Health          1
+# 3                         St. Vincent's Hospital Sydney          0
+# 4                         Macquarie University Hospital          1
+# 5                                Cross Cancer Institute          1
+# 6                         Ottawa Hospital Cancer Centre          0
+# 7                The Royal Marsden NHS Foundation Trust          0
+# 8    Lancashire Teaching Hospitals NHS Foundation Trust          0
+# 9              Guys and St. Thomas NHS Foundation Trust          1
+# 10 University Hospital Southampton NHS Foundation Trust          1
+# 11                     Duke Comprehensive Cancer Center          0
+# 12               Memorial Sloan Kettering Cancer Center          1
+# 13                         Weill Cornell Medical Center          1
+# 14                               University of Virginia          0
+
+cptest(outcome = analysis_data2$eortc_6,
+       clustername = analysis_data2$sitenew,
+       z = data.frame(analysis_data2[ , c("age_baseline", "ecog3", "race_gp", "educ_gp", "crpc_per")]), 
+       cspacedatname = "H:/GU/EMPRO/Randomization/empro_constrained.csv",
+       outcometype = "continuous",                                                      
+       categorical = c("ecog3", "race_gp", "educ_gp", "crpc_per"))
+
+```
+
+## Adjusted
+Adjusted for subject-level covariates and site-level covariates included in the randomization scheme (measured at the time of randomization).
+```{r}
+
+cptest(outcome = analysis_data2$eortc_6,
+       clustername = analysis_data2$sitenew,
+       z = data.frame(analysis_data2[ , c("age_baseline", "ecog3", "race_gp", "educ_gp", "crpc_per",
+                                          "site_country", "site_timetodx", "site_crpc")]), 
+       cspacedatname = "H:/GU/EMPRO/Randomization/empro_constrained.csv",
+       outcometype = "continuous",                                                      
+       categorical = c("ecog3", "race_gp", "educ_gp", "crpc_per", "site_country"))
+
+```
+
+## With imputation
+```{r}
+
+```
+
+
+# F-test
+## Unadjusted
+Only adjusted for subject-level covariates
+```{r}
+# linear mixed model
+fit <- lmer(eortc_6 ~ arm + age_baseline + ecog3 + race_gp + educ_gp + crpc_per + 
+              (1 | sitenew), data = analysis_data2, REML = TRUE)
+
+# Type-III ANOVA table with Satterthwaite degrees of freedom
+anova_Satt <- anova(fit, type = 3, ddf = "Satterthwaite")
+anova_Satt
+# Look for the row 'trt' → gives F-statistic and p-value for the treatment effect
+
+# estimate ICC
+isSingular(fit, tol = 1e-5)
+summary(fit)
+VarCorr(fit) # Var(site) ≈ 0 → indicates negligible ICC.
+
+
+# estimate icc
+vc <- as.data.frame(VarCorr(fit))
+vc$vcov[vc$grp == "sitenew"] / sum(vc$vcov) # If ICC ≈ 0, the warning is expected and not necessarily a problem—your data simply don’t support an extra random‐effect variance.
+
+
+```
+
+## Adjusted
+Adjusted for subject-level covariates and site-level covariates included in the randomization scheme (measured at the time of randomization).
+```{r}
+# linear mixed model
+fit_adj <- lmer(eortc_6 ~ arm + age_baseline + ecog3 + race_gp + educ_gp + crpc_per + 
+              site_country + site_timetodx + site_crpc +
+              (1 | sitenew), data = analysis_data2, REML = TRUE)
+# singular warning: random-effect variance for sitenew is estimated ≈ 0 in many imputations.
+
+# Type-III ANOVA table with Satterthwaite degrees of freedom
+anova_Satt <- anova(fit_adj, type = 3, ddf = "Satterthwaite")
+anova_Satt
+# Look for the row 'trt' → gives F-statistic and p-value for the treatment effect
+
+# estimate ICC
+isSingular(fit_adj, tol = 1e-5)
+summary(fit_adj)
+VarCorr(fit_adj) # Var(site) ≈ 0 → indicates negligible ICC.
+
+
+# estimate icc
+vc <- as.data.frame(VarCorr(fit_adj))
+vc$vcov[vc$grp == "sitenew"] / sum(vc$vcov) # If ICC ≈ 0, the warning is expected and not necessarily a problem—your data simply don’t support an extra random‐effect variance.
+
+
+```
+
+## With imputation
+```{r}
+# This was a test case for missing at random that works but is not weighted by performance status
+# there is an association between ECOG and missingness of EORTC
+chisq.test(analysis_data$ecog3, is.na(analysis_data$eortc_6))
+
+
+# --- Multiple imputation
+imp <- mice(to_impute, m = 20, maxit = 10, seed = 123, method = c(eortc_6="pmm", ecog2="polyreg", arm="", race_gp="", educ_gp="", crpc_per="", sitenew=""))
+# - pmm: Predictive mean matching (numeric)
+# - norm: Bayesian linear regression (numeric)
+# - logreg: Logistic regression (factor, 2 categories)
+# - polyreg: Polytomous (unordered) regression (factor, >= 2 categories)
+
+# apply function to imputed data
+fit_list <- with(imp, lme4::lmer(eortc_6 ~ arm + ecog2 + race_gp + educ_gp + crpc_per + (1|sitenew), REML = FALSE))
+
+# Pool without broom
+pooled <- pool(fit_list)
+
+# Summarize and convert to tibble safely
+res <- summary(pooled, conf.int = TRUE)
+
+res_tibble <- tibble::as_tibble(res) |>
+  dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
+
+res_tibble
+
+```
+
+### Adjusting for MNAR
+```{r, eval = FALSE}
+# compare survival by ECOG
+tbl_survfit(
+    survfit(Surv(limbo, dead) ~ ecog3, analysis_data),
+    times = c(12, 24),
+    label_header = "**{time} Month**"
+)
+# missing ECOG has poor prognosis
+
+## =========================
+## MNAR imputation for EORTC (continuous) using NARFCS (delta-adjustment)
+## with stronger negative shifts for worse ECOG and for missing ECOG
+## =========================
+
+# ECOG: create indicators that are robust to factor/numeric storage and NAs
+ecog_chr <- as.character(to_impute$ecog2)  # handles factor or numeric gracefully
+to_impute$ecog_missing <- as.integer(is.na(to_impute$ecog2))
+to_impute$ecog1        <- as.integer(!is.na(to_impute$ecog2) & ecog_chr == "1")
+to_impute$ecog2_hi     <- as.integer(!is.na(to_impute$ecog2) & ecog_chr == "2-4")
+
+# --- 2) Build method and predictor matrices for mice
+meth <- make.method(to_impute)
+pred <- make.predictorMatrix(to_impute)
+
+# We will MNAR-impute EORTC; other variables stay as-is ("" = not imputed)
+meth["eortc_6"] <- "mnar.norm"
+
+# IMPORTANT: the ECOG indicators are used only in the MNAR (unidentifiable) part,
+# not in the identifiable MAR model. So exclude them from the predictor matrix:
+pred[, c("ecog_missing", "ecog1", "ecog2_hi")] <- 0
+pred[c("ecog_missing", "ecog1", "ecog2_hi"), ] <- 0
+
+# --- 3) Specify the MNAR (NARFCS) 'blots' for eortc_6
+# Delta specification (tune these for sensitivity):
+#   ECOG missing  -> -5
+#   ECOG level 1  -> -3
+#   ECOG level 2  -> -6
+#   ECOG level 0  ->  0  (no indicator turns on)
+umx_df <- data.frame(
+  ecog_missing = to_impute$ecog_missing,
+  ecog1        = to_impute$ecog1,
+  ecog2_hi     = to_impute$ecog2_hi
+)
+
+blots <- list(
+  eortc_6 = list(
+    # You can add + rnorm(1,0,1) at the end for extra uncertainty
+    ums = "0 + -5*ecog_missing + -3*ecog1 + -6*ecog2_hi",
+    umx = umx_df
+  )
+)
+
+# --- 4) Run MNAR imputation (NARFCS)
+set.seed(2026)
+imp_mnar <- mice(
+  to_impute,
+  m               = 20,   # number of imputations
+  maxit           = 15,   # iterations
+  method          = meth,
+  predictorMatrix = pred,
+  blots           = blots,
+  printFlag       = TRUE
+)
+
+# --- 5) Quick diagnostics
+print(imp_mnar)
+# Visualize distributions of imputed eortc_6
+# (Uncomment if you want plots)
+# stripplot(imp_mnar, eortc_6)
+# densityplot(imp_mnar, ~ eortc_6)
+
+# --- 6) Extract completed datasets
+# Single completed dataset:
+comp1 <- complete(imp_mnar, action = 1)
+
+# All completed datasets as a list:
+all_sets <- lapply(seq_len(imp_mnar$m), function(i) complete(imp_mnar, action = i))
+
+# --- 7) (Optional) Fit your mixed model across imputations
+# IMPORTANT: Inside with(imp, ...), refer to the dataset as 'data' or directly fit the model.
+fit_list <- with(
+  imp_mnar,
+  lmer(eortc_6 ~ arm + ecog2 + race_gp + educ_gp + crpc_per + (1 | sitenew),
+       REML = FALSE)
+)
+
+# --- 8) (Optional) Pooled test for treatment arm using Rubin's rules
+# Use D1() for a pooled Wald/F-test. You must pass the exact coefficient name(s).
+# First, inspect the coefficient names from one imputed model:
+coef_names <- names(fixef(fit_list$analyses[[1]]))
+print(coef_names)
+
+# If 'arm' is binary, you might see something like "armB" or "armTreatment".
+# Replace "armB" below with the actual name in your model:
+# Example for binary arm:
+# pooled_test <- D1(fit_list, terms = "armB")
+
+# If 'arm' has >2 levels, jointly test all associated coefficients, e.g. c("armB","armC"):
+# pooled_test <- D1(fit_list, terms = c("armB","armC"))
+# print(pooled_test)
+
+# --- 9) (Optional) Pooled coefficient table without depending on broom
+# If your mice version is old and pool(..., use.broom = FALSE) is unavailable, you can still summarize each model:
+# Summaries per imputation:
+# per_imp <- lapply(fit_list$analyses, function(mod) summary(mod)$coef)
+# names(per_imp) <- paste0("imp", seq_along(per_imp))
+# str(per_imp)
+
+```
+
+### try #2 - not imputing ecog
+```{r, eval=FALSE}
+# tbl_survfit(
+#     survfit(Surv(limbo, dead) ~ ecog3, analysis_data),
+#     times = c(12, 24),
+#     label_header = "**{time} Month**"
+# )
+# missing ECOG has poor prognosis
+
+## =========================
+## MNAR imputation for EORTC (continuous) using NARFCS (delta-adjustment)
+## with stronger negative shifts for worse ECOG
+## =========================
+
+to_impute2 <- analysis_data %>% 
+  select(eortc_6, arm, ecog3, race_gp, educ_gp, crpc_per, sitenew) %>% 
+  mutate(ecog3 = ifelse(ecog3=="2-4", "2thru4", ecog3))
+pred <- make.predictorMatrix(to_impute2)
+
+# --- 3) Specify the MNAR (NARFCS) 'blots' for eortc_6
+# Delta specification (tune these for sensitivity):
+#   ECOG missing  -> -5
+#   ECOG level 2  -> -6
+#   ECOG level 1  -> -3
+#   ECOG level 0  ->  0  (no indicator turns on)
+blots <- list(
+  eortc_6 = list(
+    # You can add + rnorm(1,0,1) at the end for extra uncertainty
+    ums = "0 - 3*ecog31 - 5*ecog32thru4 - 6*ecog3Unknown"))
+
+
+blots <- list(
+  eortc_6 = list(
+    c(intercept = 0),
+    c(ecog31 = -3),
+    c(ecog32thru4 = -5),
+    c(ecog3Unknown = -6)
+  )
+)
+
+# --- 4) Run MNAR imputation (NARFCS)
+set.seed(2026)
+imp_mnar <- mice(
+  to_impute2,
+  m               = 20,   # number of imputations
+  maxit           = 15,   # iterations
+  method          = c(eortc_6="mnar.norm", ecog3="", arm="", race_gp="", educ_gp="", crpc_per="", sitenew=""),
+  blots           = blots,
+  predictorMatrix = pred,
+  printFlag       = TRUE
+)
+
+# --- 5) Quick diagnostics
+print(imp_mnar)
+# Visualize distributions of imputed eortc_6
+# (Uncomment if you want plots)
+# stripplot(imp_mnar, eortc_6)
+# densityplot(imp_mnar, ~ eortc_6)
+
+# --- 6) Extract completed datasets
+# Single completed dataset:
+comp1 <- complete(imp_mnar, action = 1)
+
+# All completed datasets as a list:
+all_sets <- lapply(seq_len(imp_mnar$m), function(i) complete(imp_mnar, action = i))
+
+# --- 7) (Optional) Fit your mixed model across imputations
+# IMPORTANT: Inside with(imp, ...), refer to the dataset as 'data' or directly fit the model.
+fit_list <- with(
+  imp_mnar,
+  lmer(eortc_6 ~ arm + ecog2 + race_gp + educ_gp + crpc_per + (1 | sitenew),
+       REML = FALSE)
+)
+
+# --- 8) (Optional) Pooled test for treatment arm using Rubin's rules
+# Use D1() for a pooled Wald/F-test. You must pass the exact coefficient name(s).
+# First, inspect the coefficient names from one imputed model:
+coef_names <- names(fixef(fit_list$analyses[[1]]))
+print(coef_names)
+
+# If 'arm' is binary, you might see something like "armB" or "armTreatment".
+# Replace "armB" below with the actual name in your model:
+# Example for binary arm:
+# pooled_test <- D1(fit_list, terms = "armB")
+
+# If 'arm' has >2 levels, jointly test all associated coefficients, e.g. c("armB","armC"):
+# pooled_test <- D1(fit_list, terms = c("armB","armC"))
+# print(pooled_test)
+
+# --- 9) (Optional) Pooled coefficient table without depending on broom
+# If your mice version is old and pool(..., use.broom = FALSE) is unavailable, you can still summarize each model:
+# Summaries per imputation:
+# per_imp <- lapply(fit_list$analyses, function(mod) summary(mod)$coef)
+# names(per_imp) <- paste0("imp", seq_along(per_imp))
+# str(per_imp)
+
+```
+
+### try #3 - ECOG as binary
+```{r}
+## =========================
+## MNAR imputation for EORTC (continuous) using NARFCS (delta-adjustment)
+## with stronger negative shifts for worse ECOG
+## =========================
+
+to_impute2 <- analysis_data %>% 
+  select(eortc_6, arm, ecog3, race_gp, educ_gp, crpc_per, sitenew) %>% 
+  mutate(ecog3 = ifelse(ecog3=="2-4", 1, 0))
+
+# --- 3) Specify the MNAR (NARFCS) 'blots' for eortc_6
+# Delta specification (tune these for sensitivity):
+#   ECOG missing  -> -5
+#   ECOG level 2  -> -6
+#   ECOG level 1  -> -3
+#   ECOG level 0  ->  0  (no indicator turns on)
+blots <- list(
+  eortc_6 = list(
+    # You can add + rnorm(1,0,1) at the end for extra uncertainty
+    ums = "0 - 3*ecog3"))
+
+
+# --- 4) Run MNAR imputation (NARFCS)
+set.seed(2026)
+imp_mnar <- mice(
+  to_impute2,
+  m               = 20,   # number of imputations
+  maxit           = 15,   # iterations
+  method          = c(eortc_6="mnar.norm", ecog3="", arm="", race_gp="", educ_gp="", crpc_per="", sitenew=""),
+  blots           = blots,
+  printFlag       = TRUE
+)
+
+# --- 5) Quick diagnostics
+print(imp_mnar)
+# Visualize distributions of imputed eortc_6
+# (Uncomment if you want plots)
+# stripplot(imp_mnar, eortc_6)
+# densityplot(imp_mnar, ~ eortc_6)
+
+# --- 6) Extract completed datasets
+# Single completed dataset:
+comp1 <- complete(imp_mnar, action = 1)
+
+# All completed datasets as a list:
+all_sets <- lapply(seq_len(imp_mnar$m), function(i) complete(imp_mnar, action = i))
+
+# --- 7) (Optional) Fit your mixed model across imputations
+# IMPORTANT: Inside with(imp, ...), refer to the dataset as 'data' or directly fit the model.
+fit_list <- with(
+  imp_mnar,
+  lmer(eortc_6 ~ arm + ecog3 + race_gp + educ_gp + crpc_per + (1 | sitenew),
+       REML = FALSE)
+)
+
+# --- 8) (Optional) Pooled test for treatment arm using Rubin's rules
+pooled <- pool(fit_list)
+
+# Summarize and convert to tibble safely
+res <- summary(pooled, conf.int = TRUE)
+
+res_tibble <- tibble::as_tibble(res) |>
+  dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
+
+res_tibble
+
+```
+
+### try #4 - with dummy vars
+```{r, eval = FALSE}
+## =========================
+## MNAR imputation for EORTC (continuous) using NARFCS (delta-adjustment)
+## with stronger negative shifts for worse ECOG
+## =========================
+
+to_impute2 <- analysis_data %>% 
+  mutate(ecog1 = ifelse(ecog3=="1", 1, 0),
+         ecog24 = ifelse(ecog3=="2-4", 1, 0),
+         ecogUnknown = ifelse(ecog3=="Unknown", 1, 0)) %>% 
+  select(eortc_6, arm, ecog1, ecog24, ecogUnknown, race_gp, educ_gp, crpc_per, sitenew) 
+
+# --- 3) Specify the MNAR (NARFCS) 'blots' for eortc_6
+# Delta specification (tune these for sensitivity):
+#   ECOG missing  -> -5
+#   ECOG level 2  -> -6
+#   ECOG level 1  -> -3
+#   ECOG level 0  ->  0  (no indicator turns on)
+blots <- list(
+  eortc_6 = list(
+    c(intercept = 0),
+    c(ecog1 = -3),
+    c(ecog24 = -5),
+    c(ecogUnknown = -6)
+  )
+)
+
+
+# --- 4) Run MNAR imputation (NARFCS)
+set.seed(2026)
+imp_mnar <- mice(
+  to_impute2,
+  m               = 20,   # number of imputations
+  maxit           = 15,   # iterations
+  method          = c(eortc_6="mnar.norm", ecog1="", ecog24="", ecogUnknown="", 
+                      arm="", race_gp="", educ_gp="", crpc_per="", sitenew=""),
+  blots           = blots,
+  printFlag       = TRUE
+)
+
+# --- 5) Quick diagnostics
+print(imp_mnar)
+# Visualize distributions of imputed eortc_6
+# (Uncomment if you want plots)
+# stripplot(imp_mnar, eortc_6)
+# densityplot(imp_mnar, ~ eortc_6)
+
+# --- 6) Extract completed datasets
+# Single completed dataset:
+comp1 <- complete(imp_mnar, action = 1)
+
+# All completed datasets as a list:
+all_sets <- lapply(seq_len(imp_mnar$m), function(i) complete(imp_mnar, action = i))
+
+# --- 7) (Optional) Fit your mixed model across imputations
+# IMPORTANT: Inside with(imp, ...), refer to the dataset as 'data' or directly fit the model.
+fit_list <- with(
+  imp_mnar,
+  lmer(eortc_6 ~ arm + ecog1 + ecog24 + ecogUnknown + race_gp + educ_gp + crpc_per + (1 | sitenew),
+       REML = FALSE)
+)
+
+# --- 8) (Optional) Pooled test for treatment arm using Rubin's rules
+pooled <- pool(fit_list)
+
+# Summarize and convert to tibble safely
+res <- summary(pooled, conf.int = TRUE)
+
+res_tibble <- tibble::as_tibble(res) |>
+  dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
+
+res_tibble
+
+```
+
