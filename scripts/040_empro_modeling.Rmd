@@ -36,6 +36,9 @@ library(lmerTest)
 library(mice)
 library(broom.mixed)
 library(devtools)
+library(survminer)
+library(ggsurvfit)
+library(ggeasy)
 
 
 ```
@@ -114,6 +117,57 @@ n_mhspc <- analysis_data %>% filter(cohort=="mHSPC" & arm=="intervention") %>% n
 n_intervention <- analysis_data %>% filter(arm=="intervention") %>% nrow()
 
 ```
+
+# Overall survival
+```{r}
+survfit2(Surv(limbo, dead=="Yes") ~ arm_c, data = analysis_data) %>% 
+  ggsurvfit(linewidth=1) +
+  add_censor_mark(size = 2) +
+  add_risktable(risktable_stats = c("{n.risk}", "cum.event"),
+                size = 4,
+                theme =   
+                  list(
+                    theme_risktable_default(axis.text.y.size = 12, 
+                                            plot.title.size = 12),
+                    theme(plot.title = element_text(face = "bold"))
+                  )) +
+  scale_ggsurvfit(x_scales = list(breaks = seq(0, 12, 3))) +
+  coord_cartesian(xlim = c(0, 12.2)) +
+  # update figure labels/titles
+  labs(
+    y = "Overall survival",
+    x = "Months from EMRPO enrollment",
+    title = NULL
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "bottom"
+  )
+
+```
+
+# Outcomes
+```{r}
+analysis_data %>% 
+  select(hosp_6mo, hosp_12mo, dead12, arm_c) %>% 
+  set_variable_labels(dead12 = "Deceased within 12mo") %>% 
+  tbl_summary(by = arm_c,
+              missing = "ifany",
+              missing_text = "N missing",
+              type = all_continuous() ~ "continuous2",
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}")) %>%
+  bold_labels() 
+
+```
+
 
 # EORTC Distribution
 

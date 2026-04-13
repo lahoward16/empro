@@ -104,10 +104,6 @@ analysis_data <- empro_data %>%
   set_variable_labels(ecog3="ECOG",
                       enrollment_month1 = "Study visit at entry")
 
-# complete data at 6 mo
-analysis_data2 <- analysis_data %>% 
-  filter(!is.na(eortc_6)) 
-
 # narrow down dataset to only needed variables
 to_impute <- analysis_data %>% 
   select(eortc_6, arm, ecog2, race_gp, educ_gp, crpc_per, sitenew)
