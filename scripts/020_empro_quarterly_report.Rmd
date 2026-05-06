@@ -64,7 +64,7 @@ var_label(empro_data) <- list(
 analysis_data <- empro_data %>% 
   filter(!is.na(empro_cnstdate) & enrollment_month<=45 & !is.na(cohort_empro)) %>%
   mutate(enrollment_month1 = fct_drop(enrollment_month1)) %>%
-  set_variable_labels(enrollment_month1 = "Study visit at entry")
+  set_variable_labels(enrollment_month1 = "Study visit at entry") 
 
 ```
 
@@ -87,28 +87,30 @@ The "proxy control" group is selected through propensity score methods using the
 
 `rollmatch` selects the control participant as well as the theoretical entry time for the control participant to best match the participants in the intervention arm.
 
-Note that 15 EMPRO participants were excluded due to the TrueNTH technical bug and they are removed from the initial box in the consort diagram.
-
 The consort diagram below shows the number of EMPRO participants who were matched. Since this is an interim analysis, we will continue to monitor if we have trouble matching these participants and can match with replacement if needed. EMPRO participants missing consent date are not included in the analyses below since we cannot calculate age or other characteristics on them. Patients must be enrolled in EMPRO before or at their Month 45 visit for IRONMAN so ensure they can complete study follow-ups.
 
-# Patient matching
+# Consort Diagram
 
 ```{r, fig.width = 7, fig.height = 5}
 # create cohorts
 study_cohorts <- empro_data %>%
   filter(arm=="intervention") %>%
-  cohort_start("Patients consented to EMRPO") %>%
+  bind_rows(data.frame(subject = paste0(1:15), exclude = "technical bug")) %>%
+  mutate(exclude = ifelse(is.na(exclude), "keep", exclude)) %>% 
+  cohort_start("Participants consented to EMRPO") %>%
   # Define cohorts using named expressions --------------------
   # Notice that you can use previously defined cohorts in subsequent steps
   cohort_define(
-    consent_date = .full %>% dplyr::filter(!is.na(empro_cnstdate)),
+    nobug = .full %>% filter(exclude!="technical bug"),
+    consent_date = nobug %>% filter(!is.na(empro_cnstdate)),
     elig = consent_date %>% filter(!suboffstudyreason=="Screen Failure" | is.na(suboffstudyreason)),
     disease_cohort = elig %>% filter(!is.na(cohort_empro)),
     enroll = disease_cohort %>% filter(enrollment_month<=45),
     matched = enroll %>% filter(not_matched==0),
     # anti_join is useful for counting exclusions -------------
-    excluded = anti_join(.full, enroll, by = "subject"),
-    excluded_consent_date = anti_join(.full, consent_date, by = "subject"),
+    excluded_bug = anti_join(.full, nobug, by="subject"),
+    excluded = anti_join(nobug, enroll, by = "subject"),
+    excluded_consent_date = anti_join(nobug, consent_date, by = "subject"),
     excluded_elig = anti_join(consent_date, elig, by="subject"),
     excluded_disease_cohort = anti_join(elig, disease_cohort, by = "subject"),
     excluded_enroll = anti_join(disease_cohort, enroll, by = "subject"),
@@ -116,10 +118,12 @@ study_cohorts <- empro_data %>%
   ) %>%
   # Provide text labels for cohorts ---------------------------
   cohort_label(
+    nobug = "Partipants included in EMPRO",
     consent_date = "Consent date available",
     disease_cohort = "Disease state available",
     enroll = "Eligible for matching",
     matched = "EMRPO participants with matched controls",
+    excluded_bug = "Removed from study due to<br>2022 TrueNTH technical bug",
     excluded = "Exclusions",
     excluded_consent_date = "No consent date",
     excluded_disease_cohort = "No disease state",
@@ -131,7 +135,13 @@ study_cohorts <- empro_data %>%
 # create consort diagram
 study_consort <- study_cohorts %>%
   consort_box_add(
-    "full", 0, 50, cohort_count_adorn(study_cohorts, .full)
+    "full", 0, 70, cohort_count_adorn(study_cohorts, .full)
+  ) %>%
+  consort_box_add(
+    "excluded_bug", 20, 60, cohort_count_adorn(study_cohorts, excluded_bug)
+  ) %>%
+  consort_box_add(
+    "nobug", 0, 50, cohort_count_adorn(study_cohorts, nobug)
   ) %>%
   consort_box_add(
     "exclusions", 20, 40, glue::glue(
@@ -150,6 +160,9 @@ study_consort <- study_cohorts %>%
   ) %>%
   consort_box_add(
     "matched", 0, 10, cohort_count_adorn(study_cohorts, matched)
+  ) %>%
+  consort_arrow_add(
+    end = "excluded_bug", end_side = "left", start_x = 0, start_y = 60
   ) %>%
   consort_arrow_add(
     end = "exclusions", end_side = "left", start_x = 0, start_y = 40

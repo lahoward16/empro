@@ -473,7 +473,7 @@ all_data = Reduce(function(...) merge(..., by="subject", all=T), formatted)
 
 ###############################
 # exclude patients affected by 
-# technical bug 
+# technical bug (2022)
 ###############################
 
 all_data <- all_data %>%
@@ -865,6 +865,7 @@ empro_data <- all_data %>%
     limbo = ifelse(dead=="Yes", 
                    time_length(deathdate_int - empro_cnstdate, unit = "month"),
                    time_length(censor_date - empro_cnstdate, unit = "month")),
+    dead6 = ifelse(dead=="Yes" & limbo<6, 1, 0),
     dead12 = ifelse(dead=="Yes" & limbo<12, 1, 0),
     pain_hard_trigger = ifelse(is.na(pain_hard_trigger) & arm=="intervention", 0, pain_hard_trigger),
     pain_hard_trigger = factor(pain_hard_trigger, levels=ynlev2, labels=ynlab2),
@@ -917,13 +918,8 @@ empro_data <- all_data %>%
   distinct() %>% 
   # merge in ecog data - additional steps below to select baseline value
   left_join(ecog, by="subject") %>% 
-  mutate(ecog_to_cnst = time_length(empro_cnstdate - ecog_date, unit="month")) %>% 
-  # append n to site
-  group_by(site) %>% 
-  mutate(n_site = n()) %>% 
-  ungroup() %>% 
-  mutate(site_n = paste0(site, "\n(n=", n_site, ")"),
-         arm_c = str_to_title(arm))
+  mutate(ecog_to_cnst = time_length(empro_cnstdate - ecog_date, unit="month")) 
+
 
     
 # flag indicating whether patients only have ECOG after baseline
@@ -1020,7 +1016,8 @@ visits <- empro_data %>%
 
   
 empro_data <- empro_data %>%
-  left_join(visits, by="subject")
+  left_join(visits, by="subject") %>% 
+  mutate(arm_c = str_to_title(arm))
 
 # limit trigger data to patients in EMPRO
 triggers_long <- triggers_long %>% 

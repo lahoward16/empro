@@ -78,7 +78,7 @@ database_final <- database_site %>%
                                  stratify = c("CountryAustralia", "CountryCanada", "CountryU.K.", "CountryU.S."),
                                  bhist = TRUE,
                                  seed = 12345,
-                                 savedata = file.path(dir, "empro_constrained.csv"),
+                                 #savedata = file.path(dir, "empro_constrained.csv"),
                                  check_validity = TRUE)
   
   ## merge allocation back into data set
