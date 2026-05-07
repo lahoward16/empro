@@ -50,7 +50,7 @@ library(emmeans)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20260408.RData")
+empro <- here::here("data", "EMPRO_data_20260506.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -135,8 +135,8 @@ analysis_data2 <- analysis_data %>%
   filter(!is.na(eortc_6)) 
 
 # patient counts
-n_crpc <- analysis_data %>% filter(cohort=="CRPC" & arm=="intervention") %>% nrow()
-n_mhspc <- analysis_data %>% filter(cohort=="mHSPC" & arm=="intervention") %>% nrow()
+n_crpc <- analysis_data %>% filter(cohort_empro=="CRPC" & arm=="intervention") %>% nrow()
+n_mhspc <- analysis_data %>% filter(cohort_empro=="mHSPC" & arm=="intervention") %>% nrow()
 n_intervention <- analysis_data %>% filter(arm=="intervention") %>% nrow()
 
 ```
@@ -412,16 +412,10 @@ cc_tab |>
 
 ```
 
+Estimated marginal means, back-transformed to the original EORTC scale.
 ```{r}
 # estimated marginal means by arm
 emm_arm <- emmeans(fit_adj, ~ arm_c)
-
-# back transform means
-emm_arm_bt <- summary(
-  emm_arm,
-  type = "response",
-  transform = "none"
-)
 
 # convert to data frame and back-transform
 emm_df <- as.data.frame(emm_arm) %>%
@@ -508,7 +502,9 @@ analysis_data %>%
 
 ```
 
-```{r, results="hide"}
+```{r, results="hide", eval=FALSE}
+# impute on transformed scale
+
 # narrow down dataset to only needed variables
 to_impute_mar <- analysis_data %>% 
   select(subject, eortc_6norm, arm_c, ecog2, race_gp, educ_gp, crpc_per, site_country, site_timetodx, site_crpc, sitenew)
@@ -518,7 +514,7 @@ imp_mar <- mice(to_impute_mar,
             m = 100, 
             maxit = 10, 
             seed = 123, 
-            method = c(subject = "", eortc_6norm="norm", ecog2="polyreg", arm_c="", 
+            method = c(subject = "", eortc_6norm="pmm", ecog2="polyreg", arm_c="", 
                        race_gp="", educ_gp="", crpc_per="", sitenew="",
                        site_country="", site_timetodx="", site_crpc=""))
 # - pmm: Predictive mean matching (numeric)
@@ -526,10 +522,44 @@ imp_mar <- mice(to_impute_mar,
 # - logreg: Logistic regression (factor, 2 categories)
 # - polyreg: Polytomous (unordered) regression (factor, >= 2 categories)
 ```
+
+```{r, results="hide"}
+# impute on native scale, then transform
+
+# narrow down dataset to only needed variables
+to_impute_mar <- analysis_data %>% 
+  select(subject, eortc_6, arm_c, ecog2, race_gp, educ_gp, crpc_per, site_country, site_timetodx, site_crpc, sitenew)
+
+# keep eortc bounded
+post <- ini$post
+post["eortc_6"] <- "imp[[j]][, i] <- pmin(pmax(imp[[j]][, i], 21), 100)"
+
+# --- Multiple imputation
+imp_mar <- mice(to_impute_mar, 
+            m = 100, 
+            maxit = 10, 
+            seed = 123, 
+            method = c(subject = "", eortc_6="pmm", ecog2="polyreg", arm_c="", 
+                       race_gp="", educ_gp="", crpc_per="", sitenew="",
+                       site_country="", site_timetodx="", site_crpc=""),
+            post = post)
+# - pmm: Predictive mean matching (numeric)
+# - norm: Bayesian linear regression (numeric)
+# - logreg: Logistic regression (factor, 2 categories)
+# - polyreg: Polytomous (unordered) regression (factor, >= 2 categories)
+
+# add transformed EORTC to data
+imp_mar2 <- complete(imp_mar, action = "long", include = TRUE)
+imp_mar2$eortc_6norm <- logit_fun(imp_mar2$eortc_6)
+imp_mar2 <- as.mids(imp_mar2)
+
+```
+
+
 Model coefficients and confidence intervals were pooled across imputations using Rubin’s rules. Global p‑values for categorical variables with >2 levels were obtained using ANOVA, which combines information across imputations while accounting for correlations among category levels. These approaches address different but complementary inferential questions and are both valid under multiple imputation.
 ```{r}
 # apply function to imputed data
-fit_list_mar <- with(imp_mar, 
+fit_list_mar <- with(imp_mar2, 
                  lme4::lmer(eortc_6norm ~ arm_c + ecog2 + race_gp + educ_gp + 
                               crpc_per + site_country + site_timetodx + 
                               site_crpc + (1|sitenew), REML = FALSE))
@@ -562,7 +592,7 @@ global_pvals <- bind_rows(
   lapply(
     cat_vars,
     function(v) get_global_anova(
-      mids_obj = imp_mar,
+      mids_obj = imp_mar2,
       outcome  = "eortc_6norm",
       var      = v
     )
@@ -570,7 +600,7 @@ global_pvals <- bind_rows(
 )
 
 # output table
-mar_tab <- imp_mar %>% 
+mar_tab <- imp_mar2 %>% 
   with(lme4::lmer(eortc_6norm ~ arm_c + ecog2 + race_gp + educ_gp + crpc_per + site_country + site_timetodx + 
                               site_crpc + (1|sitenew),
                   REML = FALSE)) %>% 
@@ -685,7 +715,10 @@ A shift of 5–10 points was considered a small clinically important difference 
 
 ### Deterministic 
 A controlled imputation approach was used in which imputed outcomes were shifted by pre‑specified ECOG‑dependent deltas. The shift was applied deterministically to all imputed values, representing the expected difference under an MNAR assumption.
-```{r, results="hide"}
+```{r, results="hide", eval=FALSE}
+
+# impute on transformed scale
+
 # The paper is implementing a pattern‑mixture / reference‑based multiple imputation approach, where:
 # * You impute missing outcomes under MAR
 # * Then apply a clinically motivated shift (δ‑adjustment) based on a QoL variable (ECOG)
@@ -756,7 +789,7 @@ imp_mnar1 <- mice(
   m = 100, 
   maxit = 10, 
   seed = 123, 
-  method = c(subject = "", eortc_6norm="norm", ecog3="", arm_c="", 
+  method = c(subject = "", eortc_6norm="pmm", ecog3="", arm_c="", 
              race_gp="", educ_gp="", crpc_per="", sitenew="",
              site_country="", site_timetodx="", site_crpc=""),
   predictorMatrix = pred,
@@ -764,10 +797,99 @@ imp_mnar1 <- mice(
 )
 ```
 
+```{r, results="hide"}
+
+# impute on native scale, then transform
+
+# The paper is implementing a pattern‑mixture / reference‑based multiple imputation approach, where:
+# * You impute missing outcomes under MAR
+# * Then apply a clinically motivated shift (δ‑adjustment) based on a QoL variable (ECOG)
+# * The shift reflects poorer outcomes for worse ECOG categories
+# This is sometimes called controlled imputation.
+
+# Conceptual Mapping to mice
+# In mice, this is implemented by:
+# 1) Imputing the outcome under MAR (standard regression imputation)
+# 2) Post‑processing the imputed values using:
+#   * ECOG score
+#   * A prespecified shift (δ) per ECOG level
+
+# create subset of needed variables
+to_impute_mnar <- analysis_data %>%
+  mutate(eortc_6 = ifelse(dead6==1 & is.na(eortc_6), logit_fun(0), eortc_6)) %>% 
+  select(subject, eortc_6, arm_c, ecog3, race_gp, educ_gp, crpc_per, sitenew, site_country, site_timetodx, site_crpc)
+
+# ECOG transformation bounded 0 to 100
+######################################################################
+# define ecog-based shifts - shift imputed outcome down as ecog worsens
+# convert ECOG 0 mean EORTC (83.7) to a probability (0.837); logit(p)= 1.63
+# calculate deteriorations on the original scale: 83.7, 76.7, 71.7, 73.7
+# calculate resulting probability: 0.837, 0.767, 0.717, 0.737
+# convert each probability to logit: 1.63, 1.19, 0.93, 1.03
+# compute logit-scale deltas (logit_pshifted - logit_p0)
+# delta_ecog <- c(
+#   `0` = 0,   # 0: reference
+#   `1` = -0.44, # -7: small change
+#   `2-4` = -0.70, # -12: small/medium change
+#   `Unknown` = -0.60 # -10
+#   )
+
+# ECOG transformation bounded 21 to 100
+######################################################################
+# define ecog-based shifts - shift imputed outcome down as ecog worsens
+# convert ECOG 0 mean EORTC (83.7) to a probability see below (0.79); logit(p)= 1.32
+# p = (83 - 21 + 0.5)/(100 - 21 + 1) = 0.79
+# calculate deteriorations on the original scale: 83.7, 76.7, 71.7, 73.7
+# calculate resulting probability using formula above: 0.79, 0.703, 0.641, 0.666
+# convert each probability to logit: 1.32, 0.86, 0.58, 0.69
+# compute logit-scale deltas (logit_pshifted - logit_p0)
+
+delta_ecog <- c(
+  `0` = 0,   # 0: reference
+  `1` = -7, # -7: small change
+  `2-4` = -12, # -12: small/medium change
+  `Unknown` = -10 # -10
+  )
+
+# mild option: 0, -5, -10 
+# upper option: 0, -10, -20
+assign("delta_ecog", delta_ecog, envir = .GlobalEnv)
+
+# set up mice
+ini <- mice(to_impute_mnar, maxit = 0)
+pred <- ini$predictorMatrix
+
+# define a post adjustment function
+# deterministic delta‑adjustment- fixed shift for each ECOG level
+post <- ini$post
+post["eortc_6"] <- "imp[[j]][, i] <- imp[[j]][, i] + delta_ecog[as.character(data$ecog3[i])]"
+
+
+# run mice
+imp_mnar1 <- mice(
+  to_impute_mnar,
+  m = 100, 
+  maxit = 10, 
+  seed = 123, 
+  method = c(subject = "", eortc_6="pmm", ecog3="", arm_c="", 
+             race_gp="", educ_gp="", crpc_per="", sitenew="",
+             site_country="", site_timetodx="", site_crpc=""),
+  predictorMatrix = pred,
+  post = post
+)
+
+# add transformed EORTC to data
+imp_mnar1t <- complete(imp_mnar1, action = "long", include = TRUE)
+imp_mnar1t$eortc_6norm <- logit_fun(imp_mnar1t$eortc_6)
+imp_mnar1ta <- as.mids(imp_mnar1t)
+
+
+```
+
 ```{r}
 
 # apply function to imputed data
-fit_list_mnar1 <- with(imp_mnar1, 
+fit_list_mnar1 <- with(imp_mnar1t, 
                        lme4::lmer(eortc_6norm ~ arm_c + ecog3 + race_gp + 
                                     educ_gp + crpc_per + site_country + 
                                     site_timetodx + site_crpc + (1|sitenew), 
@@ -793,7 +915,7 @@ global_pvals <- bind_rows(
   lapply(
     cat_vars,
     function(v) get_global_anova(
-      mids_obj = imp_mnar1,
+      mids_obj = imp_mnar1t,
       outcome  = "eortc_6norm",
       var      = v
     )
@@ -801,7 +923,7 @@ global_pvals <- bind_rows(
 )
 
 # output table
-mnar_tab1 <- imp_mnar1 %>% 
+mnar_tab1 <- imp_mnar1t %>% 
   with(lme4::lmer(eortc_6norm ~ arm_c + ecog3 + race_gp + educ_gp + crpc_per + site_country + 
                                     site_timetodx + site_crpc + (1|sitenew),
                   REML = FALSE)) %>% 
@@ -994,7 +1116,7 @@ imp_mnar2 <- mice(
   m = 100, 
   maxit = 10, 
   seed = 123, 
-  method = c(subject = "", eortc_6norm="norm", ecog3="", arm_c="", 
+  method = c(subject = "", eortc_6norm="pmm", ecog3="", arm_c="", 
              race_gp="", educ_gp="", crpc_per="", sitenew="",
              site_country="", site_timetodx="", site_crpc=""),
   predictorMatrix = pred,
@@ -1181,7 +1303,7 @@ complete_cases <- analysis_data %>%
                 ecog3 = replace_na(ecog2, "Unknown"))
 
 # extract MAR-imputed values - 60 missing EORTC-6 * 100 imputations
-long_mar <- complete(imp_mar, action = "long") %>%
+long_mar <- complete(imp_mar2, action = "long") %>%
   dplyr::mutate(source = "MAR imputation") %>%
   dplyr::mutate(
     was_missing = is.na(to_impute_mar$eortc_6norm[match(subject, to_impute_mar$subject)])
@@ -1190,7 +1312,7 @@ long_mar <- complete(imp_mar, action = "long") %>%
   dplyr::mutate(ecog3 = replace_na(ecog2, "Unknown"))
 
 # extract MNAR-imputed values
-long_mnar1 <- complete(imp_mnar1, action = "long") %>%
+long_mnar1 <- complete(imp_mnar1t, action = "long") %>%
   dplyr::mutate(source = "MNAR imputation - deterministic") %>%
   dplyr::mutate(
     was_missing = is.na(to_impute_mnar$eortc_6norm[match(subject, to_impute_mnar$subject)])
