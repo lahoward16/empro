@@ -44,7 +44,7 @@ library(bizdays)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20260408.RData")
+empro <- here::here("data", "EMPRO_data_20260506.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -131,8 +131,8 @@ analysis_data <- empro_data %>%
                       enrollment_month1 = "Study visit at entry")
 
 # patient counts
-n_crpc <- analysis_data %>% filter(cohort=="CRPC" & arm=="intervention") %>% nrow()
-n_mhspc <- analysis_data %>% filter(cohort=="mHSPC" & arm=="intervention") %>% nrow()
+n_crpc <- analysis_data %>% filter(cohort_empro=="CRPC" & arm=="intervention") %>% nrow()
+n_mhspc <- analysis_data %>% filter(cohort_empro=="mHSPC" & arm=="intervention") %>% nrow()
 n_intervention <- analysis_data %>% filter(arm=="intervention") %>% nrow()
 
 ```
@@ -312,14 +312,15 @@ analysis_data %>%
 
 ```{r}
 analysis_data %>%
-  filter(arm=="intervention") %>% 
+  filter(arm_c=="Intervention") %>% 
+  mutate(site_short = fct_drop(site_short)) %>% 
   dplyr::select(site_short,
          age_baseline,
          race_gp,
          year_emp_enrollment,
          enrollment_month_gp,
          crpc_per,
-         educ_gp) %>%
+         educ_gp) %>% 
   tbl_summary(by = site_short,
               missing = "ifany",
               missing_text = "N missing",
@@ -462,7 +463,7 @@ ggplot(
 ggplot(
   analysis_data %>% 
     filter(arm == "intervention"),
-  aes(x = siteshort_n, fill = cohort)) +
+  aes(x = siteshort_n, fill = cohort_empro)) +
   geom_bar(width = 0.75, position=position_fill(reverse = FALSE)) +
   coord_flip() +
   scale_y_continuous(labels = scales::percent) +
@@ -574,6 +575,7 @@ analysis_data %>%
 ```{r}
 analysis_data %>%
   filter(arm=="control") %>% 
+  mutate(site_short = fct_drop(site_short)) %>% 
   dplyr::select(site_short,
          age_baseline,
          race_gp,
@@ -719,7 +721,7 @@ ggplot(
 ggplot(
   analysis_data %>% 
     filter(arm == "control"),
-  aes(x = siteshort_n, fill = cohort)) +
+  aes(x = siteshort_n, fill = cohort_empro)) +
   geom_bar(width = 0.75, position=position_fill(reverse = FALSE)) +
   coord_flip() +
   scale_y_continuous(labels = scales::percent) +
@@ -808,7 +810,7 @@ analysis_data %>%
 analysis_data %>%
   dplyr::select(arm_c,
                 diag_enroll,
-                cohort) %>%
+                cohort_empro) %>%
   tbl_summary(by = arm_c,
               missing = "ifany",
               missing_text = "N missing",
@@ -940,7 +942,7 @@ ggplot(
     axis.text.y = element_text(size = 12),
     legend.text = element_text(size = 14),
     legend.title = element_text(size = 14),
-    legend.position = "none"
+    legend.position = "bottom"
   )
 
 ```
@@ -1002,7 +1004,7 @@ ggplot(
 
 # summarize percentages
 plot_df <- analysis_data %>%
-  count(arm_c, cohort) %>%
+  count(arm_c, cohort_empro) %>%
   group_by(arm_c) %>%
   mutate(
     pct = n / sum(n),
@@ -1011,7 +1013,7 @@ plot_df <- analysis_data %>%
 
 ggplot(
   plot_df,
-  aes(x = arm_c, y = pct, fill = cohort)
+  aes(x = arm_c, y = pct, fill = cohort_empro)
 ) +
   geom_col(width = 0.75, position = position_stack(reverse = TRUE)) +
   geom_text(
@@ -2234,8 +2236,8 @@ ggplot(all_triggers_long,
 
 # frequency of each soft trigger domain - ever for each patient
 soft_domains <- triggers_long %>% 
-  left_join(analysis_data %>% select(subject, cohort), by="subject") %>% 
-  group_by(subject, cohort) %>% 
+  left_join(analysis_data %>% select(subject, cohort_empro), by="subject") %>% 
+  group_by(subject, cohort_empro) %>% 
   summarize(any_anxious = max(as.numeric(soft_anxious)) - 1,
         any_sad = max(as.numeric(soft_sad)) - 1,
         any_discouraged = max(as.numeric(soft_discouraged)) - 1,
@@ -2244,7 +2246,7 @@ soft_domains <- triggers_long %>%
         any_insomnia = max(as.numeric(soft_insomnia)) - 1,
         any_general_pain = max(as.numeric(soft_general_pain)) - 1,
         any_joint_pain = max(as.numeric(soft_joint_pain)) - 1) %>% 
-  group_by(cohort) %>% 
+  group_by(cohort_empro) %>% 
   summarize(any_anxious = sum(any_anxious),
             any_sad = sum(any_sad),
             any_discouraged = sum(any_discouraged),
@@ -2253,8 +2255,8 @@ soft_domains <- triggers_long %>%
             any_insomnia = sum(any_insomnia),
             any_general_pain = sum(any_general_pain),
             any_joint_pain = sum(any_joint_pain)) %>% 
-  pivot_longer(cols = -c("cohort"), names_to = "domain", values_to = "freq") %>% 
-  mutate(p_freq = ifelse(cohort=="CRPC", freq/n_crpc*100, freq/n_mhspc*100),
+  pivot_longer(cols = -c("cohort_empro"), names_to = "domain", values_to = "freq") %>% 
+  mutate(p_freq = ifelse(cohort_empro=="CRPC", freq/n_crpc*100, freq/n_mhspc*100),
          domain = factor(
            domain,
            levels = c(
@@ -2269,7 +2271,7 @@ soft_domains <- triggers_long %>%
            labels = c("Joint pain", "General pain", "Insomnia", "Fatigue", "Social isolation", "Anxious", "Sad", "Discouraged")))
 
 soft_domains %>% 
-  ggplot(aes(x=reorder(domain,p_freq), y=p_freq, fill=cohort)) +
+  ggplot(aes(x=reorder(domain,p_freq), y=p_freq, fill=cohort_empro)) +
   geom_col(width=.75,
            position = "dodge",
            stat="identity") +
@@ -2296,7 +2298,7 @@ soft_domains %>%
 diff_data <- soft_domains %>% 
   select(-freq) %>% 
   pivot_wider(
-    names_from = cohort,
+    names_from = cohort_empro,
     values_from = p_freq
   ) %>% 
   mutate(diff = abs(CRPC - mHSPC))
@@ -2308,7 +2310,7 @@ soft_domains %>%
       x = p_freq,
       y = reorder(domain, diff),
       group = domain,
-      color = cohort
+      color = cohort_empro
     )
   ) +
   ## connecting line
@@ -2358,15 +2360,15 @@ soft_domains %>%
 ```{r}
 # line graphs showing proportion of soft triggers by cohort
 triggers_long %>% 
-  left_join(analysis_data %>% select(subject, cohort), by="subject") %>% 
-  group_by(visit, cohort) %>% 
+  left_join(analysis_data %>% select(subject, cohort_empro), by="subject") %>% 
+  group_by(visit, cohort_empro) %>% 
   summarise(n_visit = n(),
          n_soft = sum(soft_trigger=="Yes"),
          p_soft = n_soft/n_visit*100) %>% 
   ungroup %>% 
   mutate(month = gsub("Month ", "", visit), 
          month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
-  ggplot(aes(x=month, y=p_soft, group = cohort, color=cohort)) +
+  ggplot(aes(x=month, y=p_soft, group = cohort_empro, color=cohort_empro)) +
   geom_line(linewidth = 1.5) +
   geom_point(size = 2) +
   labs(x = "Month",
@@ -2395,8 +2397,8 @@ triggers_long %>%
 
 # frequency of each soft trigger domain - ever for each patient
 hard_domains <- triggers_long %>% 
-  left_join(analysis_data %>% select(subject, cohort), by="subject") %>% 
-  group_by(subject, cohort) %>% 
+  left_join(analysis_data %>% select(subject, cohort_empro), by="subject") %>% 
+  group_by(subject, cohort_empro) %>% 
   summarize(any_anxious = max(as.numeric(hard_anxious)) - 1,
         any_sad = max(as.numeric(hard_sad)) - 1,
         any_discouraged = max(as.numeric(hard_discouraged)) - 1,
@@ -2405,7 +2407,7 @@ hard_domains <- triggers_long %>%
         any_insomnia = max(as.numeric(hard_insomnia)) - 1,
         any_general_pain = max(as.numeric(hard_general_pain)) - 1,
         any_joint_pain = max(as.numeric(hard_joint_pain)) - 1) %>% 
-  group_by(cohort) %>% 
+  group_by(cohort_empro) %>% 
   summarize(any_anxious = sum(any_anxious),
             any_sad = sum(any_sad),
             any_discouraged = sum(any_discouraged),
@@ -2414,8 +2416,8 @@ hard_domains <- triggers_long %>%
             any_insomnia = sum(any_insomnia),
             any_general_pain = sum(any_general_pain),
             any_joint_pain = sum(any_joint_pain)) %>% 
-  pivot_longer(cols = -c("cohort"), names_to = "domain", values_to = "freq") %>% 
-  mutate(p_freq = ifelse(cohort=="CRPC", freq/n_crpc*100, freq/n_mhspc*100),
+  pivot_longer(cols = -c("cohort_empro"), names_to = "domain", values_to = "freq") %>% 
+  mutate(p_freq = ifelse(cohort_empro=="CRPC", freq/n_crpc*100, freq/n_mhspc*100),
          domain = factor(
            domain,
            levels = c(
@@ -2430,7 +2432,7 @@ hard_domains <- triggers_long %>%
            labels = c("Joint pain", "General pain", "Insomnia", "Fatigue", "Social isolation", "Anxious", "Sad", "Discouraged")))
 
 hard_domains %>% 
-  ggplot(aes(x=reorder(domain, p_freq), y=p_freq, fill=cohort)) +
+  ggplot(aes(x=reorder(domain, p_freq), y=p_freq, fill=cohort_empro)) +
   geom_col(width=.75,
            position = "dodge",
            stat="identity") +
@@ -2456,7 +2458,7 @@ hard_domains %>%
 diff_data <- hard_domains %>% 
   select(-freq) %>% 
   pivot_wider(
-    names_from = cohort,
+    names_from = cohort_empro,
     values_from = p_freq
   ) %>% 
   mutate(diff = abs(CRPC - mHSPC))
@@ -2468,7 +2470,7 @@ hard_domains %>%
       x = p_freq,
       y = reorder(domain, diff),
       group = domain,
-      color = cohort
+      color = cohort_empro
     )
   ) +
   ## connecting line
@@ -2518,15 +2520,15 @@ hard_domains %>%
 ```{r}
 # line graphs showing proportion of hard triggers by cohort
 triggers_long %>% 
-  left_join(analysis_data %>% select(subject, cohort), by="subject") %>% 
-  group_by(visit, cohort) %>% 
+  left_join(analysis_data %>% select(subject, cohort_empro), by="subject") %>% 
+  group_by(visit, cohort_empro) %>% 
   summarise(n_visit = n(),
          n_hard = sum(hard_trigger=="Yes"),
          p_hard = n_hard/n_visit*100) %>% 
   ungroup %>% 
   mutate(month = gsub("Month ", "", visit), 
          month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
-  ggplot(aes(x=month, y=p_hard, group = cohort, color=cohort)) +
+  ggplot(aes(x=month, y=p_hard, group = cohort_empro, color=cohort_empro)) +
   geom_line(linewidth = 1.5) +
   geom_point(size = 2) +
   labs(x = "Month",
