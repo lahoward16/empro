@@ -1161,6 +1161,20 @@ ggplot(
 
 ### Overall
 
+```{r, eval = FALSE}
+# ≥75% of patients will complete ≥66% of EMPRO PROMs questions during 6 months of follow up
+
+hyp <- triggers_long %>% 
+  filter(visit %in% c("Month 2", "Month 3", "Month 4", "Month 5", "Month 6", "Month 7")) %>% 
+  group_by(subject) %>% 
+  summarize(n = n(),
+            atleast4 = ifelse(n>=4, 1, 0))
+janitor::tabyl(hyp, atleast4)
+janitor::tabyl(hyp, n)
+
+```
+
+
 ```{r}
 # line graph of survey completion by month
 triggers_long %>% 
@@ -1176,7 +1190,7 @@ triggers_long %>%
   labs(x = "Month",
        y = "Percentage of Participants",
        fill = NULL,
-       title = "Percentage of Participants Completing \nthe EMPRO Survey at Each Visit") +
+       title = "Percentage of Participants Completing \nthe Intervention Survey at Each Visit") +
   theme_bw() +  
   theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
         axis.title.x = element_text(vjust=0.5,face="bold", size=16),
@@ -1186,18 +1200,6 @@ triggers_long %>%
   coord_cartesian(ylim = c(0, 85))
   
 ```
-
-
-### Completion of EMPRO - hypothesis
-```{r}
-# At least 75% of patients will complete at least 66% of EMPRO PROMs questions during 6 months of follow up
-n_complete<-triggers_long %>% 
-  mutate(month = as.numeric(gsub("Month ", "", visit))) %>% 
-  filter(subject %in% analysis_data$subject & month<=6) %>% 
-  nrow()
-n_intervention <- analysis_data %>% filter(arm=="intervention") %>% nrow()
-```
-There were `r n_complete` surveys completed across `r n_intervention` participants over 6 months, for a completion rate of `r round(100*n_complete/(n_intervention*6), 1)`
 
 ### By site
 
@@ -1247,7 +1249,7 @@ triggers_long %>%
   labs(x = "Month",
        y = "Percentage of Participants",
        fill = NULL,
-       title = "Percentage of Participants Completing \nthe EMPRO Survey at Each Visit") +
+       title = "Percentage of Participants Completing \nthe Intervention Survey at Each Visit") +
   theme_bw() +  
   theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
         axis.title.x = element_text(vjust=0.5,face="bold", size=16),
@@ -1271,7 +1273,7 @@ triggers_long %>%
   geom_histogram(aes(y=after_stat(density)), binwidth = 1, fill = "#008837", color = "black") +
   labs(x = "Number of Questionnaires Completed",
        y = "Frequency of Participants",
-       title = "Number of Questionnaires\nCompleted for Each Participant") +
+       title = "Number of Intervention Questionnaires\nCompleted for Each Participant") +
   scale_x_continuous(breaks = seq(0, 12, 1), labels = seq(0, 12, 1)) +
   theme_bw() +  
   theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
@@ -2321,7 +2323,7 @@ soft_domains %>%
   geom_text(
     data = diff_data,
     aes(
-      x = pmax(CRPC, mHSPC) + 4.5,
+      x = pmax(CRPC, mHSPC) + 4.8,
       y = domain,
       label = paste0(round(diff, 1), "%")
     ),
@@ -2343,7 +2345,7 @@ soft_domains %>%
     color = NULL,
     title = "Difference in Proportion of Participants Ever\nHaving a Soft Trigger for Each Domain\nBy Disease State"
   ) +
-  xlim(15, 90) +
+  xlim(15, 95) +
   theme_bw() +
   theme(
     plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
@@ -2481,7 +2483,7 @@ hard_domains %>%
   geom_text(
     data = diff_data,
     aes(
-      x = pmax(CRPC, mHSPC) + 4.5,
+      x = pmax(CRPC, mHSPC) + 4.8,
       y = domain,
       label = paste0(round(diff, 1), "%")
     ),
@@ -2503,7 +2505,7 @@ hard_domains %>%
     color = NULL,
     title = "Difference in Proportion of Participants Ever\nHaving a Hard Trigger for Each Domain\nBy Disease State"
   ) +
-  xlim(15, 90) +
+  xlim(15, 95) +
   theme_bw() +
   theme(
     plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
@@ -2793,7 +2795,7 @@ fig_data %>%
   labs(x = "Month",
        y = "Percentage of Participants",
        fill = NULL,
-       title = "Percentage of Participants Completing \nthe EMPRO Survey at Each Visit (Control Sites)") +
+       title = "Percentage of Participants Completing \nthe EORTC Survey at Each Visit (Control Sites)") +
   theme_bw() +  
   theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
         axis.title.x = element_text(vjust=0.5,face="bold", size=16),
@@ -2813,7 +2815,7 @@ fig_data %>%
   labs(x = "Month",
        y = "Percentage of Participants",
        fill = NULL,
-       title = "Percentage of Participants Completing \nthe EMPRO Survey at Each Visit (Intervention Sites)") +
+       title = "Percentage of Participants Completing \nthe EORTC Survey at Each Visit (Intervention Sites)") +
   theme_bw() +  
   theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
         axis.title.x = element_text(vjust=0.5,face="bold", size=16),
