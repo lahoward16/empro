@@ -397,7 +397,12 @@ ggplot(
   coord_flip() +
   scale_y_continuous(labels = scales::percent) +
   scale_fill_manual(
-    values = c("#f0f9e8","#ccebc5","#a8ddb5","#7bccc4","#43a2ca","#0868ac"),
+    values = c("2021"="#f0f9e8",
+              "2022"="#ccebc5",
+              "2023"="#a8ddb5",
+              "2024"="#7bccc4",
+              "2025"="#43a2ca",
+              "2026"="#0868ac"),
     drop = FALSE
   ) +
   labs(
@@ -658,7 +663,12 @@ ggplot(
   coord_flip() +
   scale_y_continuous(labels = scales::percent) +
   scale_fill_manual(
-    values = c("#f0f9e8","#ccebc5","#a8ddb5","#7bccc4","#43a2ca","#0868ac"),
+    values = c("2021"="#f0f9e8",
+              "2022"="#ccebc5",
+              "2023"="#a8ddb5",
+              "2024"="#7bccc4",
+              "2025"="#43a2ca",
+              "2026"="#0868ac"),
     drop = FALSE
   ) +
   labs(
@@ -2155,13 +2165,28 @@ persist <- triggers_long %>%
       .names = "{.col}_3inrow"
     )
   ) %>%
-  ungroup()
+  ungroup() %>% 
+  # flag for whether persistent hard trigger was after opt out feature approval
+  mutate(empro_time = as.POSIXct(EMPRO_questionnaire_completion_date,
+                            format = "%d-%b-%Y %H:%M:%S",
+                            tz = "UTC"),
+    opt_out = case_when(
+    site=="Guys St. Thomas NHS Foundation Trust" & empro_time>=as.Date("2024-09-11") ~ 1,
+    site=="University Hospital Southampton NHS Foundation Trust" & empro_time>=as.Date("2024-09-19") ~ 1,
+    TRUE & empro_time>=as.Date("2024-07-10") ~ 1,
+    TRUE ~ 0
+  ))
 
 persist %>% 
   select(ends_with("_3inrow")) %>% 
   select(-hard_trigger_domains_3inrow, -hard_trigger_3inrow) %>% 
   tbl_summary()
 
+persist %>% 
+  filter(opt_out==1) %>% 
+  select(ends_with("_3inrow")) %>% 
+  select(-hard_trigger_domains_3inrow, -hard_trigger_3inrow) %>% 
+  tbl_summary()
 ```
 
 There were `r n_persistent_triggers` where `r n_persistent_people` participants opted out of persistent hard triggers. This included `r n_persistent_general_pain` general pain, `r n_persistent_joint_pain` joint pain, `r n_persistent_fatigue` fatigue, `r n_persistent_insomnia` insomnia, and `r n_persistent_social_isolation` social isolation.

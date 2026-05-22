@@ -480,5 +480,12 @@ tab_all <- tbl_stack(list(soft, hard, summary, trig),
     style = gt::cell_text(weight = "bold"),
     locations = gt::cells_row_groups(groups = everything())); tab_all
 
+triggers_long %>% filter(soft_or_hard_trigger=="Yes") %>% 
+    select(after_bug, self_mgmt, self_mgmt_before_email, self_mgmt_after_email) %>%
+    tbl_summary(by = after_bug, missing = "no") %>%
+    add_overall() %>%
+    modify_header(label ~ "**Variable**") %>%
+    add_p(include = c(self_mgmt)) %>% 
+    modify_caption("**Among participants with a hard or soft trigger**")
 
 ```

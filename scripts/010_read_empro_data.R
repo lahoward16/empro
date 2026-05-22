@@ -258,18 +258,8 @@ triggers_long <- qre_timeline %>%
          q_date = as.Date(as.POSIXct(EMPRO_questionnaire_completion_date, format = "%d-%b-%Y %H:%M:%S"))) %>%
   left_join(trigreport, by = c("user_id", "visit")) %>%
   # clean up variables
-  mutate(soft_trigger = case_when(
-    is.na(soft_trigger) & soft_anxious + soft_discouraged + soft_fatigue + soft_general_pain +
-      soft_insomnia + soft_joint_pain + soft_sad + soft_social_isolation ==0 ~ 0,
-    is.na(soft_trigger) & soft_anxious + soft_discouraged + soft_fatigue + soft_general_pain +
-      soft_insomnia + soft_joint_pain + soft_sad + soft_social_isolation >0  ~ 1,
-    TRUE ~ soft_trigger),
-    hard_trigger = case_when(
-      is.na(hard_trigger) & hard_anxious + hard_discouraged + hard_fatigue + hard_general_pain +
-        hard_insomnia + hard_joint_pain + hard_sad + hard_social_isolation ==0 ~ 0,
-      is.na(hard_trigger) & hard_anxious + hard_discouraged + hard_fatigue + hard_general_pain +
-        hard_insomnia + hard_joint_pain + hard_sad + hard_social_isolation >0  ~ 1,
-      TRUE ~ hard_trigger),
+  mutate(soft_trigger = ifelse(!is.na(soft_trigger_domains), 1, 0),
+    hard_trigger = ifelse(!is.na(hard_trigger_domains), 1, 0),
     soft_or_hard_trigger = ifelse(soft_trigger==1 | hard_trigger==1, 1, 0),
     soft_anxious = factor(soft_anxious, levels = ynlev2, labels = ynlab2),
     soft_discouraged = factor(soft_discouraged, levels = ynlev2, labels = ynlab2),
