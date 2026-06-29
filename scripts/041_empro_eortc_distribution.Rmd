@@ -1,0 +1,220 @@
+---
+title: "EORTC distribution"
+author: "Lauren Howard"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+    toc_float: true
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("../reports/EMPRO EORTC distribution ",Sys.Date(),'.html')) })
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = TRUE, echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.width = 12, fig.height = 8, fig.align = 'center')
+```
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(lubridate)
+library(here)
+library(gtsummary)
+library(ggplot2)
+library(kableExtra)
+library(ggpubr)
+library(haven)
+library(labelled)
+library(ggmosaic)
+library(gt)
+library(dplyr)
+library(gtsummary)
+library(flextable)
+library(ggconsort)
+library(cvcrand)
+library(lme4) 
+library(lmerTest)
+library(mice)
+library(miceadds)
+library(mitools)
+library(broom.mixed)
+library(devtools)
+library(survminer)
+library(ggsurvfit)
+library(ggeasy)
+library(emmeans)
+
+
+```
+
+```{r readdata, echo = F, include = F}
+# load data set
+empro <- here::here("data", "EMPRO_data_20260506.RData")
+load(empro)
+
+# analysis data set (remove exclusions)
+dat <- empro_data %>% 
+  filter(!is.na(empro_cnstdate) & enrollment_month<=45 & !is.na(cohort_empro))
+
+```
+
+# EORTC Distribution
+## Native scale
+```{r}
+ggplot(dat, aes(x = eortc_6)) +
+  geom_histogram(binwidth = 5, fill = "#a6dba0", color = "black") +
+  labs(title = "EORTC at 6 Months", x = "EORTC Score", y = "Frequency") +
+  theme_bw()+
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14))
+qqnorm(dat$eortc_6)
+qqline(dat$eortc_6, col="red")
+
+shapiro.test(dat$eortc_6)
+
+parameters::skewness(dat$eortc_6)
+parameters::kurtosis(dat$eortc_6)
+
+```
+
+## Square root transformation
+```{r}
+ggplot(dat, aes(x = sqrt(eortc_6))) +
+  geom_histogram(fill = "#a6dba0", color = "black") +
+  labs(title = "EORTC at 6 Months (square root)", x = "EORTC Score (square root)", y = "Frequency") +
+  theme_bw()+
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14))
+qqnorm(sqrt(dat$eortc_6))
+qqline(sqrt(dat$eortc_6), col="red")
+
+shapiro.test(sqrt(dat$eortc_6))
+
+parameters::skewness(sqrt(dat$eortc_6))
+parameters::kurtosis(sqrt(dat$eortc_6))
+
+```
+
+## Cube root transformation
+```{r}
+ggplot(dat, aes(x = eortc_6^(1/3))) +
+  geom_histogram(fill = "#a6dba0", color = "black") +
+  labs(title = "EORTC at 6 Months (cube root)", x = "EORTC Score (cube root)", y = "Frequency") +
+  theme_bw()+
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14))
+qqnorm(dat$eortc_6^(1/3))
+qqline(dat$eortc_6^(1/3), col="red")
+
+shapiro.test(dat$eortc_6^(1/3))
+
+parameters::skewness(dat$eortc_6^(1/3))
+parameters::kurtosis(dat$eortc_6^(1/3))
+
+```
+
+
+## Log transformation
+```{r}
+ggplot(dat, aes(x = log(eortc_6))) +
+  geom_histogram(fill = "#a6dba0", color = "black") +
+  labs(title = "EORTC at 6 Months (log)", x = "EORTC Score (log)", y = "Frequency") +
+  theme_bw()+
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14))
+qqnorm(log(dat$eortc_6))
+qqline(log(dat$eortc_6), col="red")
+
+shapiro.test(log(dat$eortc_6))
+
+parameters::skewness(log(dat$eortc_6))
+parameters::kurtosis(log(dat$eortc_6))
+
+```
+
+## Reflected and log-transformed
+Reverses the scale
+```{r}
+dat$logtrans <- log(101 - dat$eortc_6)
+
+ggplot(dat, aes(x = logtrans)) +
+  geom_histogram(fill = "#a6dba0", color = "black") +
+  labs(title = "EORTC at 6 Months (reflected log)", x = "EORTC Score (reflected log)", y = "Frequency") +
+  theme_bw()+
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14))
+qqnorm((dat$logtrans))
+qqline((dat$logtrans), col="red")
+
+shapiro.test((dat$logtrans))
+
+parameters::skewness((dat$logtrans))
+parameters::kurtosis((dat$logtrans))
+
+```
+
+## Inverse Hyperbolic Sine
+```{r}
+dat$ihs <- log(dat$eortc_6 + sqrt(dat$eortc_6^2 +1))
+
+ggplot(dat, aes(x = ihs)) +
+  geom_histogram(fill = "#a6dba0", color = "black") +
+  labs(title = "EORTC at 6 Months (IHS)", x = "EORTC Score (IHS)", y = "Frequency") +
+  theme_bw()+
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14))
+qqnorm((dat$ihs))
+qqline((dat$ihs), col="red")
+
+shapiro.test((dat$ihs))
+
+parameters::skewness((dat$ihs))
+parameters::kurtosis((dat$ihs))
+
+```
+
+## Square root (100-x)
+```{r}
+dat$sqrt100 <- sqrt(100-dat$eortc_6)
+
+ggplot(dat, aes(x = sqrt100)) +
+  geom_histogram(fill = "#a6dba0", color = "black") +
+  labs(title = "EORTC at 6 Months (sqrt(100-x))", x = "EORTC Score (sqrt(100-x))", y = "Frequency") +
+  theme_bw()+
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14))
+qqnorm((dat$sqrt100))
+qqline((dat$sqrt100), col="red")
+
+shapiro.test((dat$sqrt100))
+
+parameters::skewness((dat$sqrt100))
+parameters::kurtosis((dat$sqrt100))
+
+```
+
+
+
+

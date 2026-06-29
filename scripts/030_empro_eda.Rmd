@@ -1190,8 +1190,8 @@ janitor::tabyl(hyp, n)
 triggers_long %>% 
   filter(subject %in% analysis_data$subject) %>% 
   group_by(visit) %>% 
-  summarize(n_visit = n(),
-         p_visit = n_visit/n_intervention*100,
+  summarize(n_visit = n()) %>% 
+  mutate(p_visit = n_visit/n_intervention*100,
          month = gsub("Month ", "", visit), 
          month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
   ggplot(aes(x=month, y=p_visit, group = 1)) +
@@ -1207,7 +1207,7 @@ triggers_long %>%
         axis.text.x = element_text(size=14),
         axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
         axis.text.y = element_text(size=14)) +
-  coord_cartesian(ylim = c(0, 85))
+  coord_cartesian(ylim = c(0, 100))
   
 ```
 
@@ -1278,12 +1278,12 @@ triggers_long %>%
 triggers_long %>% 
   count(subject) %>% 
   full_join(analysis_data %>% filter(arm=="intervention") %>% select(subject), by="subject") %>% 
-  mutate(n = replace_na(n, 0)) %>%
+  mutate(n = replace_na(n, 0)) %>% 
   ggplot(aes(x = n)) +
   geom_histogram(aes(y=after_stat(density)), binwidth = 1, fill = "#008837", color = "black") +
-  labs(x = "Number of Questionnaires Completed",
+  labs(x = "Number of Surveys Completed",
        y = "Frequency of Participants",
-       title = "Number of Intervention Questionnaires\nCompleted for Each Participant") +
+       title = "Number of Intervention Surveys\nCompleted for Each Participant") +
   scale_x_continuous(breaks = seq(0, 12, 1), labels = seq(0, 12, 1)) +
   theme_bw() +  
   theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
@@ -1370,7 +1370,7 @@ triggers_long %>%
        y = "Percentage of Participants",
        fill = NULL,
        title = "Percent of Participants With a Soft Trigger by Month \nAmong Survey Completers") +
-  ylim(0, 90) +
+  ylim(0, 95) +
   theme_bw() +  
   theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
         axis.title.x = element_text(vjust=0.5,face="bold", size=16),
@@ -1634,7 +1634,7 @@ triggers_long %>%
        y = "Percentage of Participants",
        fill = NULL,
        title = "Self-Management Utilization at Each Month\n Among Participants with Soft Triggers") +
-  ylim(0, 75) +
+  ylim(0, 50) +
   theme_bw() +  
   theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
         axis.title.x = element_text(vjust=0.5,face="bold", size=16),
@@ -1774,7 +1774,7 @@ triggers_long %>%
        y = "Percentage of Participants",
        fill = NULL,
        title = "Percent of Participants With a Hard Trigger by Month \nAmong Survey Completers") +
-  ylim(0, 90) +
+  ylim(0, 95) +
   theme_bw() +  
   theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
         axis.title.x = element_text(vjust=0.5,face="bold", size=16),
@@ -2038,7 +2038,7 @@ triggers_long %>%
        y = "Percentage of Participants",
        fill = NULL,
        title = "Self-Management Utilization at Each Month\n Among Participants with Hard Triggers") +
-  ylim(0, 75) +
+  ylim(0, 50) +
   theme_bw() +  
   theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
         axis.title.x = element_text(vjust=0.5,face="bold", size=16),
@@ -2103,8 +2103,8 @@ triggers_long %>%
            stat="identity", position=position_stack(reverse = TRUE),
            aes(x=month, y=p_freq, fill=response)) +
   scale_fill_manual(
-    values = c("#c2a5cf", 
-               "#7b3294",
+    values = c("#a6dba0", 
+               "#008837",
                "grey60") ) +
   labs(x = "Month",
        y = "Percentage of Participants",
@@ -2671,6 +2671,9 @@ bug_present %>%
 # stratified by bug
 triggers_long %>% 
   filter(soft_trigger == "Yes") %>% 
+  mutate(after_bug = factor(after_bug, 
+                            levels = c("Bug present", "Bug fixed"),
+                            labels = c("Bug present (N=932)", "Bug fixed (N=342)"))) %>% 
   group_by(visit, after_bug) %>% 
   mutate(n_soft = n(),
          n_access = sum(self_mgmt=="Yes")) %>% 
@@ -2694,10 +2697,72 @@ triggers_long %>%
         axis.text.x = element_text(size=14),
         axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
         axis.text.y = element_text(size=14),
-        strip.text = element_text(size = 14)) +
+        strip.text = element_text(size = 16)) +
   facet_wrap(.~after_bug)
 
 ```
+
+## Self-management useage after bug email
+```{r}
+
+email_data <- triggers_long %>% 
+  # flag whether questionnaire was after apology email was sent
+  mutate(after_email = if_else(q_date > as.Date("2024-09-10"), 1, 0)) %>% 
+  # determine if pts had qs before and after email
+  group_by(subject) %>% 
+  mutate(any_before = min(after_email)==0,
+         any_after = max(after_email)==1) %>% 
+  ungroup() %>% 
+  filter(any_before & any_after) %>% 
+  arrange(subject, q_date) %>%
+  group_by(subject) %>%
+  mutate(
+    q_num = NA_integer_
+  ) %>%
+  mutate(
+    q_num = replace(
+      q_num,
+      q_date < as.Date("2024-09-10"),
+      -rev(seq_along(q_date[q_date < as.Date("2024-09-10")]))
+    ),
+    q_num = replace(
+      q_num,
+      q_date > as.Date("2024-09-10"),
+      seq_along(q_date[q_date > as.Date("2024-09-10")])
+    )
+  ) %>%
+  ungroup() 
+
+# calculate the proportion who accessed the self-management content at each q number
+# trigger does not matter
+email_data %>% 
+  filter(soft_trigger=="Yes") %>% 
+  mutate(self_mgmt_num=ifelse(self_mgmt=="Yes", 1, 0)) %>% 
+  group_by(q_num) %>% 
+  summarize(n=n(),
+            n_mgmt = sum(self_mgmt_num)) %>% 
+  mutate(p_mgmt = n_mgmt/n*100) %>% 
+  ggplot(aes(x=q_num, y=p_mgmt, group = 1)) +
+  geom_line(linewidth = 2) +
+  geom_point(size = 3) +
+  labs(x = "Month since apology email",
+       y = "Percentage of Participants",
+       fill = NULL,
+       title = "Percentage of Participants Accessing the\nSelf-Management Content Before and After the Apology Email") +
+  scale_x_continuous(breaks = seq(-10, 11, 1)) +
+  theme_classic() +  
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 1.5) +
+  annotate("text", x=-5, y=5, size=5, label= "Before apology email") +
+  annotate("text", x=5, y=5, size=5, label= "After apology email")
+  
+  
+```
+
 
 # IRONMAN PROM completion rates
 
