@@ -238,15 +238,7 @@ triggers_long <- qre_timeline %>%
   # filter out empty records
   filter(!is.na(EMPRO_questionnaire_completion_date) & status=="Completed") %>%
   # separate soft and hard triggers into separate variables for each domain
-  mutate(soft_anxious = ifelse(grepl("anxious", soft_trigger_domains), 1, 0),
-         soft_discouraged = ifelse(grepl("discouraged", soft_trigger_domains), 1, 0),
-         soft_fatigue = ifelse(grepl("fatigue", soft_trigger_domains), 1, 0),
-         soft_general_pain = ifelse(grepl("general_pain", soft_trigger_domains), 1, 0),
-         soft_insomnia = ifelse(grepl("insomnia", soft_trigger_domains), 1, 0),
-         soft_joint_pain = ifelse(grepl("joint_pain", soft_trigger_domains), 1, 0),
-         soft_sad = ifelse(grepl("sad", soft_trigger_domains), 1, 0),
-         soft_social_isolation = ifelse(grepl("social_isolation", soft_trigger_domains), 1, 0),
-         hard_anxious = ifelse(grepl("anxious", hard_trigger_domains), 1, 0),
+  mutate(hard_anxious = ifelse(grepl("anxious", hard_trigger_domains), 1, 0),
          hard_discouraged = ifelse(grepl("discouraged", hard_trigger_domains), 1, 0),
          hard_fatigue = ifelse(grepl("fatigue", hard_trigger_domains), 1, 0),
          hard_general_pain = ifelse(grepl("general_pain", hard_trigger_domains), 1, 0),
@@ -254,11 +246,20 @@ triggers_long <- qre_timeline %>%
          hard_joint_pain = ifelse(grepl("joint_pain", hard_trigger_domains), 1, 0),
          hard_sad = ifelse(grepl("sad", hard_trigger_domains), 1, 0),
          hard_social_isolation = ifelse(grepl("social_isolation", hard_trigger_domains), 1, 0),
+         soft_anxious = ifelse(grepl("anxious", soft_trigger_domains) & hard_anxious!=1, 1, 0),
+         soft_discouraged = ifelse(grepl("discouraged", soft_trigger_domains) & hard_discouraged!=1, 1, 0),
+         soft_fatigue = ifelse(grepl("fatigue", soft_trigger_domains) & hard_fatigue!=1, 1, 0),
+         soft_general_pain = ifelse(grepl("general_pain", soft_trigger_domains) & hard_general_pain!=1, 1, 0),
+         soft_insomnia = ifelse(grepl("insomnia", soft_trigger_domains) & hard_insomnia!=1, 1, 0),
+         soft_joint_pain = ifelse(grepl("joint_pain", soft_trigger_domains) & hard_joint_pain!=1, 1, 0),
+         soft_sad = ifelse(grepl("sad", soft_trigger_domains) & hard_sad!=1, 1, 0),
+         soft_social_isolation = ifelse(grepl("social_isolation", soft_trigger_domains) & hard_social_isolation!=1, 1, 0),
          # extract date
          q_date = as.Date(as.POSIXct(EMPRO_questionnaire_completion_date, format = "%d-%b-%Y %H:%M:%S"))) %>%
   left_join(trigreport, by = c("user_id", "visit")) %>%
   # clean up variables
-  mutate(soft_trigger = ifelse(!is.na(soft_trigger_domains), 1, 0),
+  mutate(soft_trigger = ifelse(soft_anxious + soft_discouraged + soft_fatigue + soft_general_pain + 
+                                 soft_insomnia + soft_joint_pain + soft_sad + soft_social_isolation >=1, 1, 0),
     hard_trigger = ifelse(!is.na(hard_trigger_domains), 1, 0),
     soft_or_hard_trigger = ifelse(soft_trigger==1 | hard_trigger==1, 1, 0),
     soft_anxious = factor(soft_anxious, levels = ynlev2, labels = ynlab2),
@@ -300,7 +301,7 @@ triggers_long <- qre_timeline %>%
                       soft_insomnia = "Insomnia",
                       soft_joint_pain = "Joint pain",
                       soft_sad = "Sad",
-                      soft_social_isolation = "Social Isolation",
+                      soft_social_isolation = "Socialization",
                       hard_anxious = "Anxious",
                       hard_discouraged = "Discouraged",
                       hard_fatigue = "Fatigue",
@@ -308,7 +309,7 @@ triggers_long <- qre_timeline %>%
                       hard_insomnia = "Insomnia",
                       hard_joint_pain = "Joint pain",
                       hard_sad = "Sad",
-                      hard_social_isolation = "Social Isolation",                      
+                      hard_social_isolation = "Socialization",                      
                       soft_trigger = "Any soft trigger",
                       hard_trigger = "Any hard trigger",
                       soft_or_hard_trigger = "Any soft or hard trigger",
@@ -321,29 +322,31 @@ triggers_long <- qre_timeline %>%
 # Triggers data
 # Question: how to tell if patient engaged in TrueNTH self management tool
 # Question: does clinician_status mean that they contacted the patient?
-  # function to erase soft triggers that are also hard triggers - 4/9/26 - don't erase these
+  # function to erase soft triggers that are also hard triggers - 
+      # 4/9/26 - don't erase these; 
+      # 7/28/26 - add these back in
 formatted$triggers <- qre_timeline %>%
   rename(subject=study_id) %>%
   # filter out empty records
   filter(!is.na(EMPRO_questionnaire_completion_date) & status=="Completed") %>%
-  # # separate soft triggers into separate variables
-  # separate_wider_delim(soft_trigger_domains, ", ", names_sep = "", too_few = "align_start") %>%
-  # # transpose to long
-  # pivot_longer(cols = starts_with("soft_trigger_domains"),
-  #              names_to = "num",
-  #              names_prefix = "soft_trigger_domains",
-  #              values_to = "soft_trigger",
-  #              values_drop_na = TRUE) %>%
-  # # replace repeated soft triggers to NA (double listed in hard and soft)
-  # rowwise() %>%
-  # mutate(soft_trigger = ifelse(grepl(soft_trigger, hard_trigger_domains), NA, soft_trigger)) %>%
-  # ungroup() %>%
-  # # mutate back to wide
-  # pivot_wider(id_cols = c(subject, visit, hard_trigger_domains, clinician_status, content_domains_accessed),
-  #             names_from = num,
-  #             names_prefix = "soft_trigger_domains", 
-  #             values_from = soft_trigger) %>%
-  # # unite soft triggers into one column
+  # separate soft triggers into separate variables
+  separate_wider_delim(soft_trigger_domains, ", ", names_sep = "", too_few = "align_start") %>%
+  # transpose to long
+  pivot_longer(cols = starts_with("soft_trigger_domains"),
+               names_to = "num",
+               names_prefix = "soft_trigger_domains",
+               values_to = "soft_trigger",
+               values_drop_na = TRUE) %>% 
+  # replace repeated soft triggers to NA (double listed in hard and soft)
+  rowwise() %>%
+  mutate(soft_trigger = ifelse(grepl(soft_trigger, hard_trigger_domains), NA, soft_trigger)) %>%
+  ungroup() %>% 
+  # mutate back to wide
+  pivot_wider(id_cols = c(subject, visit, hard_trigger_domains, clinician_status, content_domains_accessed),
+              names_from = num,
+              names_prefix = "soft_trigger_domains",
+              values_from = soft_trigger) %>% 
+  # unite soft triggers into one column
   unite(soft_trigger_domains, starts_with("soft_trigger_domains"), sep = ", ", na.rm=TRUE) %>%
   mutate(soft_trigger_domains = ifelse(soft_trigger_domains=="", NA, soft_trigger_domains), 
          # number of surveys that released a trigger 
