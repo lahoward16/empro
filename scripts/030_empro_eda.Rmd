@@ -44,7 +44,7 @@ library(bizdays)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20260506.RData")
+empro <- here::here("data", "EMPRO_data_20260728.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -1413,7 +1413,7 @@ triggers_domain_soft <- triggers_long %>%
         "soft_insomnia",
         "soft_general_pain",
         "soft_joint_pain"),
-      labels = c("Anxious", "Sad", "Discouraged", "Social isolation", "Fatigue", "Insomnia", "General pain", "Joint pain"))) %>% 
+      labels = c("Anxious", "Sad", "Discouraged", "Socialization", "Fatigue", "Insomnia", "General pain", "Joint pain"))) %>% 
   group_by(visit, domain, n_visit) %>% 
   reframe(n_triggered = sum(trigger=="Yes", na.rm=TRUE),
             prop_triggered = n_triggered/n_visit) %>% 
@@ -1457,63 +1457,6 @@ ggplot(triggers_domain_soft,
   ) +
   scale_color_manual(values = c("black", "white"))
 
-
-ggplot(triggers_domain_soft,
-       aes(x = month, y = domain, fill = prop_triggered)) +
-  geom_tile(color = "white", linewidth = 0.6) +
-  scale_fill_viridis_c(
-    option = "plasma",
-    direction = -1,
-    limits = c(0, 0.56),
-    labels = scales::percent
-  ) +
-  labs(
-    x = "Month",
-    y = "Domain",
-    fill = "Proportion\nTriggered",
-    title = "Proportion of Each Domain\nwith a Soft Trigger at Each Month"
-  ) +
-  theme_minimal() +
-  theme(
-    panel.grid = element_blank(),
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 14),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14)
-  )
-
-ggplot(triggers_domain_soft,
-       aes(x = month, y = domain, fill = prop_triggered)) +
-  geom_tile(color = "white", linewidth = 0.6) +
-  scale_fill_distiller(
-    palette="Spectral",
-    #palette = 4,
-    limits = c(0, 0.56),
-    #direction = -1,
-    labels = scales::percent
-  ) +
-  labs(
-    x = "Month",
-    y = "Domain",
-    fill = "Proportion\nTriggered",
-    title = "Proportion of Each Domain\nwith a Soft Trigger at Each Month"
-  ) +
-  theme_minimal() +
-  theme(
-    panel.grid = element_blank(),
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 14),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14)
-  )
-
-
 ggplot(triggers_domain_soft,
        aes(x = month, y = prop_triggered, color = domain, group = domain)) +
   geom_line(linewidth = 1.2) +
@@ -1521,7 +1464,7 @@ ggplot(triggers_domain_soft,
   scale_color_manual(
     values = c(
       "Discouraged" = "#a1d99b",
-      "Social isolation"  = "#74c476",
+      "Socialization"  = "#74c476",
       "Sad"      = "#238b45",
       "Anxious"    = "#005a32",
       "Insomnia" = "#9e9ac8",
@@ -1590,7 +1533,7 @@ triggers_long %>%
         "any_general_pain",
         "any_discouraged",
         "any_social_isolation"),
-      labels = c("Sad", "Fatigue", "Insomnia", "Anxious", "Joint pain", "General pain", "Discouraged", "Social isolation"))) %>% 
+      labels = c("Sad", "Fatigue", "Insomnia", "Anxious", "Joint pain", "General pain", "Discouraged", "Socialization"))) %>% 
   ggplot() +
   geom_bar(width=.75,
            stat="identity",
@@ -1817,7 +1760,7 @@ triggers_domain_hard <- triggers_long %>%
         "hard_insomnia",
         "hard_general_pain",
         "hard_joint_pain"),
-      labels = c("Anxious", "Sad", "Discouraged", "Social isolation", "Fatigue", "Insomnia", "General pain", "Joint pain"))) %>% 
+      labels = c("Anxious", "Sad", "Discouraged", "Socialization", "Fatigue", "Insomnia", "General pain", "Joint pain"))) %>% 
   group_by(visit, domain, n_visit) %>% 
   reframe(n_triggered = sum(trigger=="Yes", na.rm=TRUE),
             prop_triggered = n_triggered/n_visit) %>% 
@@ -1859,61 +1802,6 @@ ggplot(triggers_domain_hard,
   ) +
   scale_color_manual(values = c("black", "white"))
 
-ggplot(triggers_domain_hard,
-       aes(x = month, y = domain, fill = prop_triggered)) +
-  geom_tile(color = "white", linewidth = 0.6) +
-  scale_fill_viridis_c(
-    option = "plasma",
-    direction = -1,
-    limits = c(0, 0.56),
-    labels = scales::percent
-  ) +
-  labs(
-    x = "Month",
-    y = "Domain",
-    fill = "Proportion\nTriggered",
-    title = "Proportion of Each Domain\nwith a Hard Trigger at Each Month"
-  ) +
-  theme_minimal() +
-  theme(
-    panel.grid = element_blank(),
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 14),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14)
-  )
-
-ggplot(triggers_domain_hard,
-       aes(x = month, y = domain, fill = prop_triggered)) +
-  geom_tile(color = "white", linewidth = 0.6) +
-  scale_fill_distiller(
-    palette="Spectral",
-    #palette = 4,
-    limits = c(0, 0.56),
-    #direction = -1,
-    labels = scales::percent
-  ) +  
-  labs(
-    x = "Month",
-    y = "Domain",
-    fill = "Proportion\nTriggered",
-    title = "Proportion of Each Domain\nwith a Hard Trigger at Each Month"
-  ) +
-  theme_minimal() +
-  theme(
-    panel.grid = element_blank(),
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 14),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14)
-  )
-
 
 ggplot(triggers_domain_hard,
        aes(x = month, y = prop_triggered, color = domain, group = domain)) +
@@ -1922,7 +1810,7 @@ ggplot(triggers_domain_hard,
   scale_color_manual(
     values = c(
       "Discouraged" = "#a1d99b",
-      "Social isolation"  = "#74c476",
+      "Socialization"  = "#74c476",
       "Sad"      = "#238b45",
       "Anxious"    = "#005a32",
       "Insomnia" = "#9e9ac8",
@@ -1991,7 +1879,7 @@ triggers_long %>%
              "any_joint_pain",
              "any_insomnia",
              "any_fatigue"),
-           labels = c("Discouraged", "Social isolation", "Anxious", 
+           labels = c("Discouraged", "Socialization", "Anxious", 
                       "General pain", "Sad",
                       "Joint pain", "Insomnia", "Fatigue"))) %>% 
   ggplot() +
@@ -2189,7 +2077,7 @@ persist %>%
   tbl_summary()
 ```
 
-There were `r n_persistent_triggers` where `r n_persistent_people` participants opted out of persistent hard triggers. This included `r n_persistent_general_pain` general pain, `r n_persistent_joint_pain` joint pain, `r n_persistent_fatigue` fatigue, `r n_persistent_insomnia` insomnia, and `r n_persistent_social_isolation` social isolation.
+There were `r n_persistent_triggers` where `r n_persistent_people` participants opted out of persistent hard triggers. This included `r n_persistent_general_pain` general pain, `r n_persistent_joint_pain` joint pain, `r n_persistent_fatigue` fatigue, `r n_persistent_insomnia` insomnia, and `r n_persistent_social_isolation` socialization.
 
 ## Soft vs. Hard
 ```{r, fig.height=7, fig.width=12}
@@ -2206,7 +2094,7 @@ ggplot(all_triggers_long,
   scale_color_manual(
     values = c(
       "Discouraged" = "#a1d99b",
-      "Social isolation"  = "#74c476",
+      "Socialization"  = "#74c476",
       "Sad"      = "#238b45",
       "Anxious"    = "#005a32",
       "Insomnia" = "#9e9ac8",
@@ -2218,7 +2106,7 @@ ggplot(all_triggers_long,
   scale_fill_manual(
     values = c(
       "Discouraged"     = "#a1d99b",
-      "Social isolation"= "#74c476",
+      "Socialization"= "#74c476",
       "Sad"             = "#238b45",
       "Anxious"         = "#005a32",
       "Insomnia"        = "#9e9ac8",
@@ -2295,7 +2183,7 @@ soft_domains <- triggers_long %>%
              "any_anxious",
              "any_sad",
              "any_discouraged"),
-           labels = c("Joint pain", "General pain", "Insomnia", "Fatigue", "Social isolation", "Anxious", "Sad", "Discouraged")))
+           labels = c("Joint pain", "General pain", "Insomnia", "Fatigue", "Socialization", "Anxious", "Sad", "Discouraged")))
 
 soft_domains %>% 
   ggplot(aes(x=reorder(domain,p_freq), y=p_freq, fill=cohort_empro)) +
@@ -2456,7 +2344,7 @@ hard_domains <- triggers_long %>%
              "any_anxious",
              "any_sad",
              "any_discouraged"),
-           labels = c("Joint pain", "General pain", "Insomnia", "Fatigue", "Social isolation", "Anxious", "Sad", "Discouraged")))
+           labels = c("Joint pain", "General pain", "Insomnia", "Fatigue", "Socialization", "Anxious", "Sad", "Discouraged")))
 
 hard_domains %>% 
   ggplot(aes(x=reorder(domain, p_freq), y=p_freq, fill=cohort_empro)) +
