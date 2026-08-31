@@ -400,7 +400,10 @@ formatted$last_q <- qre_timeline %>%
   group_by(subject) %>%
   slice(1) %>%
   select(subject, last_empro_q)
-  
+
+# pull data from individual empro survey questions  
+empro_domain <- empro |> 
+  select(subject = study_id, visit=timepoint, starts_with("ironman_ss"))
 
 # completed questionnaires
 # NOTE: this is not shifted based on enrollment month
@@ -1012,10 +1015,10 @@ empro_data <- empro_data %>%
   left_join(visits, by="subject") %>% 
   mutate(arm_c = str_to_title(arm))
 
-# limit trigger data to patients in EMPRO
+# limit trigger data to patients in EMPRO, merge in domain questionnaire responses
 triggers_long <- triggers_long %>% 
-  filter(subject %in% empro_data$subject & subject!=lateenroll)
-
+  filter(subject %in% empro_data$subject & subject!=lateenroll) |>
+  left_join(empro_domain, by=c("subject", "visit"))
 
 # label variables
 var_label(empro_data) <- list(
