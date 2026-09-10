@@ -328,26 +328,18 @@ triggers_long <- qre_timeline %>%
 formatted$triggers <- qre_timeline %>%
   rename(subject=study_id) %>%
   # filter out empty records
-  filter(!is.na(EMPRO_questionnaire_completion_date) & status=="Completed") %>%
-  # separate soft triggers into separate variables
-  separate_wider_delim(soft_trigger_domains, ", ", names_sep = "", too_few = "align_start") %>%
-  # transpose to long
-  pivot_longer(cols = starts_with("soft_trigger_domains"),
-               names_to = "num",
-               names_prefix = "soft_trigger_domains",
-               values_to = "soft_trigger",
-               values_drop_na = TRUE) %>% 
+  filter(!is.na(EMPRO_questionnaire_completion_date) & status=="Completed") %>% 
+  # transpose to one domain in each cell
+  separate_longer_delim(soft_trigger_domains, delim=",") |> 
+  mutate(hard_domains = trimws(soft_trigger_domains)) %>% 
   # replace repeated soft triggers to NA (double listed in hard and soft)
   rowwise() %>%
-  mutate(soft_trigger = ifelse(grepl(soft_trigger, hard_trigger_domains), NA, soft_trigger)) %>%
+  mutate(soft_trigger_domains = ifelse(grepl(soft_trigger_domains, hard_trigger_domains), NA, soft_trigger_domains)) %>%
   ungroup() %>% 
   # mutate back to wide
-  pivot_wider(id_cols = c(subject, visit, hard_trigger_domains, clinician_status, content_domains_accessed),
-              names_from = num,
-              names_prefix = "soft_trigger_domains",
-              values_from = soft_trigger) %>% 
-  # unite soft triggers into one column
-  unite(soft_trigger_domains, starts_with("soft_trigger_domains"), sep = ", ", na.rm=TRUE) %>%
+  group_by(subject, visit, hard_trigger_domains, content_domains_accessed, clinician_status) |> 
+  summarise(soft_trigger_domains = paste(na.omit(soft_trigger_domains), collapse = ", "), .groups = "drop") |> 
+  mutate(soft_trigger_domains = na_if(soft_trigger_domains, "")) |> 
   mutate(soft_trigger_domains = ifelse(soft_trigger_domains=="", NA, soft_trigger_domains), 
          # number of surveys that released a trigger 
          soft_trigger = ifelse(!is.na(soft_trigger_domains), 1, 0),
@@ -389,6 +381,29 @@ formatted$triggers <- qre_timeline %>%
          self_mgmt_soft = ifelse(select(., starts_with("self_mgmt_soft")) %>% rowSums(na.rm=TRUE) > 0, 1, 0),
          self_mgmt_hard = ifelse(select(., starts_with("self_mgmt_hard")) %>% rowSums(na.rm=TRUE) > 0, 1, 0))
 
+# number of hard trigger domains throughout the study
+formatted$triggers_numhard <- qre_timeline %>%
+  rename(subject=study_id) %>%
+  # filter out empty records
+  filter(!is.na(EMPRO_questionnaire_completion_date) & status=="Completed" & !is.na(hard_trigger_domains)) |> 
+  # transpose to one domain in each cell
+  separate_longer_delim(hard_trigger_domains, delim=",") |> 
+  mutate(hard_domains = trimws(hard_trigger_domains)) |> 
+  # eliminate duplicate domains
+  group_by(subject, hard_domains) |> 
+  slice(1) |> 
+  group_by(subject) |> 
+  # number of unique hard trigger domains
+  summarise(n_hard_domains = n()) |> 
+  # merge back in patients with no hard triggers
+  full_join(formatted$triggers |> select(subject), by="subject") |> 
+  # categorize
+  mutate(n_hard_domains = ifelse(is.na(n_hard_domains), 0, n_hard_domains),
+         n_hard_domains2 = ifelse(n_hard_domains<=2, 0, 1),
+         n_hard_domains2 = factor(n_hard_domains2, levels = 0:1, labels = c("≤2", ">2")))
+  
+
+
 # Last questionnaire completed
 formatted$last_q <- qre_timeline %>%
   rename(subject=study_id) %>%
@@ -403,7 +418,7 @@ formatted$last_q <- qre_timeline %>%
 
 # pull data from individual empro survey questions  
 empro_domain <- empro |> 
-  select(subject = study_id, visit=timepoint, starts_with("ironman_ss"))
+  dplyr::select(subject = study_id, visit=timepoint, starts_with("ironman_ss"))
 
 # completed questionnaires
 # NOTE: this is not shifted based on enrollment month
@@ -1086,7 +1101,9 @@ var_label(empro_data) <- list(
   percent_eortc_complete_9 = "% EORTC complete at 9 mo",
   percent_eortc_complete_12 = "% EORTC complete at 12 mo",
   hosp_6mo = "Hospitalization within 6mo",
-  hosp_12mo = "Hospitalization within 12mo")
+  hosp_12mo = "Hospitalization within 12mo",
+  n_hard_domains = "Number of unique hard domains",
+  n_hard_domains2 = "Number of unique hard domains")
   # q_month_1 = "Completed PRO-CTCAE questionnare at 1 mo",
   # q_month_2 = "Completed PRO-CTCAE questionnare at 2 mo",
   # q_month_3 = "Completed PRO-CTCAE questionnare at 3 mo",

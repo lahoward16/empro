@@ -5,7 +5,7 @@ date: "`r format(Sys.time(), '%d %B %Y')`"
 output: 
   html_document:
     number_sections: true
-knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("../reports/EMPRO Quarterly Report ",Sys.Date(),'.html')) })
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("../reports/Quarterly reports/EMPRO Quarterly Report ",Sys.Date(),'.html')) })
 ---
 
 ```{css, echo=FALSE}

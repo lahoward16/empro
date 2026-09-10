@@ -7,7 +7,7 @@ output:
     number_sections: true
     toc: true
     toc_float: true
-knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("../reports/EMPRO EDA ",Sys.Date(),'.html')) })
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0("../reports/EDA/EMPRO EDA ",Sys.Date(),'.html')) })
 ---
 
 ```{r setup, include=FALSE}
@@ -44,7 +44,7 @@ library(bizdays)
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20260728.RData")
+empro <- here::here("data", "EMPRO_data_20260831.RData")
 load(empro)
 
 #make enrollment month factor 
@@ -137,7 +137,7 @@ n_intervention <- analysis_data %>% filter(arm=="intervention") %>% nrow()
 
 ```
 
-# Enrollment
+# EMPRO patient enrollment
 
 ## By site
 
@@ -304,236 +304,6 @@ analysis_data %>%
   facet_wrap(~arm)
 ```
 
-## Patient characteristics
-
-
-
-### Intervention arm
-
-```{r}
-analysis_data %>%
-  filter(arm_c=="Intervention") %>% 
-  mutate(site_short = fct_drop(site_short)) %>% 
-  dplyr::select(site_short,
-         age_baseline,
-         race_gp,
-         year_emp_enrollment,
-         enrollment_month_gp,
-         crpc_per,
-         educ_gp) %>% 
-  tbl_summary(by = site_short,
-              missing = "ifany",
-              missing_text = "N missing",
-              type = all_continuous() ~ "continuous2",
-              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
-                                               "{min}, {max}")) %>%
-  bold_labels() 
-
-```
-
-#### Age
-
-```{r}
-ggplot(analysis_data %>% filter(arm=="intervention"), aes(x = site_short, y = age_baseline)) +
-  geom_boxplot(fill = "#a6dba0") +
-  xlab("Site") +
-  ylab("Age") +
-  labs(title = "Intervention") +
-  coord_flip() +
-  theme_bw() +  
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=12),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=12),
-        legend.text = element_text(colour="black", size = 14),
-        legend.title = element_text(colour="black", size = 14))
-```
-
-#### Race
-
-```{r}
-
-ggplot(
-  analysis_data %>% filter(arm == "intervention"),
-  aes(x = siteshort_n, fill = race_gp)) +
-  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
-  coord_flip() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_fill_manual(
-    values = c("#a8ddb5","#0868ac", "grey60"),
-    drop = FALSE
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent of Participants",
-    fill = NULL,
-    title = "Intervention"
-  ) +
-  guides(fill = guide_legend(ncol =3)) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 12),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 12),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "bottom"
-  )
-
-```
-
-#### Year of enrollment
-
-```{r}
-
-ggplot(
-  analysis_data %>% filter(arm == "intervention"),
-  aes(x = siteshort_n, fill = year_emp_enrollment)
-) +
-  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
-  coord_flip() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_fill_manual(
-    values = c("2021"="#f0f9e8",
-              "2022"="#ccebc5",
-              "2023"="#a8ddb5",
-              "2024"="#7bccc4",
-              "2025"="#43a2ca",
-              "2026"="#0868ac"),
-    drop = FALSE
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent of Participants",
-    fill = NULL,
-    title = "Intervention"
-  ) +
-  guides(fill = guide_legend(ncol =6)) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 12),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 12),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "none"
-  )
-
-```
-
-#### IRONMAN visit at entry
-
-```{r}
-
-ggplot(
-  analysis_data %>% filter(arm == "intervention"),
-  aes(x = siteshort_n, fill = enrollment_month_gp)) +
-  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
-  coord_flip() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_fill_manual(
-    values = c("#ccebc5","#a8ddb5","#7bccc4","#43a2ca","#0868ac"),
-    drop = FALSE
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent of Participants",
-    fill = NULL,
-    title = "Intervention"
-  ) +
-  guides(fill = guide_legend(ncol =3)) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 12),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 12),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "none"
-  )
-
-```
-
-#### Disease state
-
-```{r}
-
-ggplot(
-  analysis_data %>% 
-    filter(arm == "intervention"),
-  aes(x = siteshort_n, fill = cohort_empro)) +
-  geom_bar(width = 0.75, position=position_fill(reverse = FALSE)) +
-  coord_flip() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_fill_manual(
-    values = c("#a8ddb5","#43a2ca"),
-    drop = FALSE
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent of Participants",
-    fill = NULL,
-    title = "Intervention"
-  ) +
-  guides(fill = guide_legend(ncol =6)) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 12),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 12),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "bottom"
-  )
-
-```
-
-#### Education
-
-```{r}
-
-ggplot(
-  analysis_data %>% filter(arm == "intervention"),
-  aes(x = siteshort_n, fill = educ_gp)) +
-  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
-  coord_flip() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_fill_manual(
-    values = c("#a8ddb5","#0868ac", "grey60"),
-    drop = FALSE
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent of Participants",
-    fill = NULL,
-    title = "Intervention"
-  ) +
-  guides(fill = guide_legend(ncol =3)) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 12),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 12),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "none"
-  )
-
-```
-
-### Control arm
-
 ```{r, fig.width=10, fig.height=6}
 # enrollment by site
 
@@ -577,225 +347,30 @@ analysis_data %>%
 
 ```
 
-```{r}
-analysis_data %>%
-  filter(arm=="control") %>% 
-  mutate(site_short = fct_drop(site_short)) %>% 
-  dplyr::select(site_short,
-         age_baseline,
-         race_gp,
-         year_emp_enrollment,
-         enrollment_month_gp,
-         crpc_per,
-         educ_gp) %>%
-  tbl_summary(by = site_short,
-              missing = "ifany",
-              missing_text = "N missing",
-              type = all_continuous() ~ "continuous2",
-              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
-                                               "{min}, {max}")) %>%
-  bold_labels() 
-```
+# Randomization & patient characteristics
 
-#### Age
+The control group is selected through propensity score methods using the package `rollmatch`. We matched 1:1 on (entry = EMPRO enrollment date):
 
-```{r}
-ggplot(analysis_data %>% filter(arm=="control"), aes(x = site_short, y = age_baseline)) +
-  geom_boxplot(fill = "#a6dba0") +
-  xlab("Site") +
-  ylab("Age") +
-  labs(title = "Control") +
-  coord_flip() +
-  theme_bw() +  
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=12),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14),
-        legend.text = element_text(colour="black", size = 14),
-        legend.title = element_text(colour="black", size = 14))
-```
+-   Country (USA, Canada, UK, Australia)
 
-#### Race
+-   EMPRO enrollment year (categorical)
 
-```{r}
+-   IRONMAN study visit at entry (Baseline, 3-12 mo, 15-24 mo, 27-36 mo, after 36 mo)
 
-ggplot(
-  analysis_data %>% filter(arm == "control"),
-  aes(x = siteshort_n, fill = race_gp)) +
-  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
-  coord_flip() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_fill_manual(
-    values = c("#a8ddb5","#0868ac", "grey60"),
-    drop = FALSE
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent of Participants",
-    fill = NULL,
-    title = "Control"
-  ) +
-  guides(fill = guide_legend(ncol =3)) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 12),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "bottom"
-  )
+-   Disease status at entry (mHSPC, CRPC)
 
-```
+-   Age at entry (continuous)
 
-#### Year of enrollment
+-   Race (White, Black, Other)
 
-```{r}
+-   Education level (secondary school or less, college or more, unknown)  
 
-ggplot(
-  analysis_data %>% filter(arm == "control"),
-  aes(x = siteshort_n, fill = year_emp_enrollment)
-) +
-  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
-  coord_flip() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_fill_manual(
-    values = c("2021"="#f0f9e8",
-              "2022"="#ccebc5",
-              "2023"="#a8ddb5",
-              "2024"="#7bccc4",
-              "2025"="#43a2ca",
-              "2026"="#0868ac"),
-    drop = FALSE
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent of Participants",
-    fill = NULL,
-    title = "Control"
-  ) +
-  guides(fill = guide_legend(ncol =6)) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 12),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "none"
-  )
+Characteristics are shown by site within each arm and then overall between arms.  
 
-```
 
-#### IRONMAN visit at entry
-```{r}
+## Table
 
-ggplot(
-  analysis_data %>% filter(arm == "control"),
-  aes(x = siteshort_n, fill = enrollment_month_gp)) +
-  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
-  coord_flip() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_fill_manual(
-    values = c("#ccebc5","#a8ddb5","#7bccc4","#43a2ca","#0868ac"),
-    drop = FALSE
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent of Participants",
-    fill = NULL,
-    title = "Control"
-  ) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 12),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14),
-    legend.text = element_text(size = 14),
-    legend.position = "none"
-  )
-
-```
-
-#### Disease state
-
-```{r}
-
-ggplot(
-  analysis_data %>% 
-    filter(arm == "control"),
-  aes(x = siteshort_n, fill = cohort_empro)) +
-  geom_bar(width = 0.75, position=position_fill(reverse = FALSE)) +
-  coord_flip() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_fill_manual(
-    values = c("#a8ddb5","#43a2ca"),
-    drop = FALSE
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent of Participants",
-    fill = NULL,
-    title = "Control"
-  ) +
-  guides(fill = guide_legend(ncol =6)) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 12),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "bottom"
-  )
-
-```
-
-#### Education
-
-```{r}
-
-ggplot(
-  analysis_data %>% filter(arm == "control"),
-  aes(x = siteshort_n, fill = educ_gp)) +
-  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
-  coord_flip() +
-  scale_y_continuous(labels = scales::percent) +
-  scale_fill_manual(
-    values = c("#a8ddb5","#0868ac", "grey60"),
-    drop = FALSE
-  ) +
-  labs(
-    x = NULL,
-    y = "Percent of Participants",
-    fill = NULL,
-    title = "Control"
-  ) +
-  guides(fill = guide_legend(ncol =3)) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 12),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "none"
-  )
-
-```
-
-# Randomization & Balance Review
+### Overall
 
 ```{r}
 analysis_data %>%
@@ -832,7 +407,88 @@ analysis_data %>%
                            stat_2 = "**Intervention** N = {n}") 
 ```
 
-#### Age
+
+### Intervention arm by site
+```{r}
+analysis_data %>%
+  filter(arm_c=="Intervention") %>% 
+  mutate(site_short = fct_drop(site_short)) %>% 
+  dplyr::select(site_short,
+         age_baseline,
+         race_gp,
+         year_emp_enrollment,
+         enrollment_month_gp,
+         crpc_per,
+         educ_gp) %>% 
+  tbl_summary(by = site_short,
+              missing = "ifany",
+              missing_text = "N missing",
+              type = all_continuous() ~ "continuous2",
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}")) %>%
+  bold_labels() 
+
+```
+
+### Control arm by site
+```{r}
+analysis_data %>%
+  filter(arm=="control") %>% 
+  mutate(site_short = fct_drop(site_short)) %>% 
+  dplyr::select(site_short,
+         age_baseline,
+         race_gp,
+         year_emp_enrollment,
+         enrollment_month_gp,
+         crpc_per,
+         educ_gp) %>%
+  tbl_summary(by = site_short,
+              missing = "ifany",
+              missing_text = "N missing",
+              type = all_continuous() ~ "continuous2",
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}")) %>%
+  bold_labels() 
+```
+
+
+
+## Age
+
+```{r}
+ggplot(analysis_data %>% filter(arm=="intervention"), aes(x = site_short, y = age_baseline)) +
+  geom_boxplot(fill = "#a6dba0") +
+  xlab("Site") +
+  ylab("Age") +
+  labs(title = "Intervention") +
+  coord_flip() +
+  theme_bw() +  
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=12),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=12),
+        legend.text = element_text(colour="black", size = 14),
+        legend.title = element_text(colour="black", size = 14))
+```
+
+```{r}
+ggplot(analysis_data %>% filter(arm=="control"), aes(x = site_short, y = age_baseline)) +
+  geom_boxplot(fill = "#a6dba0") +
+  xlab("Site") +
+  ylab("Age") +
+  labs(title = "Control") +
+  coord_flip() +
+  theme_bw() +  
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=12),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14),
+        legend.text = element_text(colour="black", size = 14),
+        legend.title = element_text(colour="black", size = 14))
+```
+
 
 ```{r, fig.width = 10, fig.height = 6}
 ggplot(analysis_data, aes(x = arm_c, y = age_baseline)) +
@@ -851,7 +507,74 @@ ggplot(analysis_data, aes(x = arm_c, y = age_baseline)) +
         legend.title = element_text(colour="black", size = 14))
 ```
 
-#### Race
+## Race
+
+```{r}
+
+ggplot(
+  analysis_data %>% filter(arm == "intervention"),
+  aes(x = siteshort_n, fill = race_gp)) +
+  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("#a8ddb5","#0868ac", "grey60"),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Percent of Participants",
+    fill = NULL,
+    title = "Intervention"
+  ) +
+  guides(fill = guide_legend(ncol =3)) +
+  theme_bw() +  
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "bottom"
+  )
+
+```
+
+```{r}
+
+ggplot(
+  analysis_data %>% filter(arm == "control"),
+  aes(x = siteshort_n, fill = race_gp)) +
+  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("#a8ddb5","#0868ac", "grey60"),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Percent of Participants",
+    fill = NULL,
+    title = "Control"
+  ) +
+  guides(fill = guide_legend(ncol =3)) +
+  theme_bw() +  
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 14),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "bottom"
+  )
+
+```
+
 
 ```{r, fig.width = 10, fig.height = 6}
 
@@ -905,7 +628,86 @@ ggplot(
 
 ```
 
-#### Year of enrollment
+## Year of enrollment
+
+```{r}
+
+ggplot(
+  analysis_data %>% filter(arm == "intervention"),
+  aes(x = siteshort_n, fill = year_emp_enrollment)
+) +
+  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("2021"="#f0f9e8",
+              "2022"="#ccebc5",
+              "2023"="#a8ddb5",
+              "2024"="#7bccc4",
+              "2025"="#43a2ca",
+              "2026"="#0868ac"),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Percent of Participants",
+    fill = NULL,
+    title = "Intervention"
+  ) +
+  guides(fill = guide_legend(ncol =6)) +
+  theme_bw() +  
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "none"
+  )
+
+```
+
+```{r}
+
+ggplot(
+  analysis_data %>% filter(arm == "control"),
+  aes(x = siteshort_n, fill = year_emp_enrollment)
+) +
+  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("2021"="#f0f9e8",
+              "2022"="#ccebc5",
+              "2023"="#a8ddb5",
+              "2024"="#7bccc4",
+              "2025"="#43a2ca",
+              "2026"="#0868ac"),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Percent of Participants",
+    fill = NULL,
+    title = "Control"
+  ) +
+  guides(fill = guide_legend(ncol =6)) +
+  theme_bw() +  
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 14),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "none"
+  )
+
+```
+
 
 ```{r, fig.width = 10, fig.height = 6}
 
@@ -957,7 +759,71 @@ ggplot(
 
 ```
 
-#### IRONMAN visit at entry
+## IRONMAN visit at entry
+
+```{r}
+
+ggplot(
+  analysis_data %>% filter(arm == "intervention"),
+  aes(x = siteshort_n, fill = enrollment_month_gp)) +
+  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("#ccebc5","#a8ddb5","#7bccc4","#43a2ca","#0868ac"),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Percent of Participants",
+    fill = NULL,
+    title = "Intervention"
+  ) +
+  guides(fill = guide_legend(ncol =3)) +
+  theme_bw() +  
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "none"
+  )
+
+```
+
+```{r}
+
+ggplot(
+  analysis_data %>% filter(arm == "control"),
+  aes(x = siteshort_n, fill = enrollment_month_gp)) +
+  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("#ccebc5","#a8ddb5","#7bccc4","#43a2ca","#0868ac"),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Percent of Participants",
+    fill = NULL,
+    title = "Control"
+  ) +
+  theme_bw() +  
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 14),
+    legend.text = element_text(size = 14),
+    legend.position = "none"
+  )
+
+```
 
 ```{r, fig.width = 10, fig.height = 6}
 
@@ -1008,7 +874,76 @@ ggplot(
 
 ```
 
-#### Disease state
+## Disease state
+
+```{r}
+
+ggplot(
+  analysis_data %>% 
+    filter(arm == "intervention"),
+  aes(x = siteshort_n, fill = cohort_empro)) +
+  geom_bar(width = 0.75, position=position_fill(reverse = FALSE)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("#a8ddb5","#43a2ca"),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Percent of Participants",
+    fill = NULL,
+    title = "Intervention"
+  ) +
+  guides(fill = guide_legend(ncol =6)) +
+  theme_bw() +  
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "bottom"
+  )
+
+```
+
+```{r}
+
+ggplot(
+  analysis_data %>% 
+    filter(arm == "control"),
+  aes(x = siteshort_n, fill = cohort_empro)) +
+  geom_bar(width = 0.75, position=position_fill(reverse = FALSE)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("#a8ddb5","#43a2ca"),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Percent of Participants",
+    fill = NULL,
+    title = "Control"
+  ) +
+  guides(fill = guide_legend(ncol =6)) +
+  theme_bw() +  
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 14),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "bottom"
+  )
+
+```
+
 
 ```{r, fig.width = 10, fig.height = 6}
 
@@ -1060,7 +995,84 @@ ggplot(
 
 ```
 
-#### Education
+### Vs. visit at entry
+```{r}
+analysis_data |> 
+  filter(arm=="intervention") |> 
+  select(enrollment_month_gp, cohort_empro) |> 
+  tbl_summary(by=cohort_empro)
+```
+
+
+## Education
+
+```{r}
+
+ggplot(
+  analysis_data %>% filter(arm == "intervention"),
+  aes(x = siteshort_n, fill = educ_gp)) +
+  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("#a8ddb5","#0868ac", "grey60"),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Percent of Participants",
+    fill = NULL,
+    title = "Intervention"
+  ) +
+  guides(fill = guide_legend(ncol =3)) +
+  theme_bw() +  
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 12),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "none"
+  )
+
+```
+
+
+```{r}
+
+ggplot(
+  analysis_data %>% filter(arm == "control"),
+  aes(x = siteshort_n, fill = educ_gp)) +
+  geom_bar(width = 0.75, position=position_fill(reverse = TRUE)) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("#a8ddb5","#0868ac", "grey60"),
+    drop = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Percent of Participants",
+    fill = NULL,
+    title = "Control"
+  ) +
+  guides(fill = guide_legend(ncol =3)) +
+  theme_bw() +  
+  theme(
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 14),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 14),
+    legend.position = "none"
+  )
+
+```
+
 
 ```{r, fig.width = 10, fig.height = 6}
 
@@ -1112,8 +1124,8 @@ ggplot(
 
 ```
 
-#### ECOG
-
+## ECOG
+***Not a matching characteristic
 ```{r, fig.width = 10, fig.height = 6}
 
 # summarize percentages
@@ -1165,7 +1177,7 @@ ggplot(
 
 ```
 
-# Trigger activity & Clinical Response
+# Trigger activity & clinical response
 
 ## Questionnaire completion
 
@@ -1296,7 +1308,41 @@ triggers_long %>%
   
 ```
 
-## Soft triggers
+## Patient-level trigger summary
+
+```{r}
+### add in number of hard trigger domains, number of hard triggers, number of soft triggers, etc
+analysis_data %>%
+  filter(arm == "intervention") %>% 
+  dplyr::select(
+         n_visit_soft_trigger,
+         n_total_soft_trigger,
+         any_soft_trigger,
+         self_mgmt_soft,
+         n_visit_hard_trigger,
+         n_total_hard_trigger,
+         n_hard_domains,
+         n_hard_domains2,
+         any_hard_trigger,
+         self_mgmt_hard,
+         clinician_contact) %>%
+  tbl_summary(missing = "no",
+              type = list(n_total_soft_trigger ~ "continuous2",
+                          n_visit_soft_trigger ~ "continuous2",
+                          n_total_hard_trigger ~ "continuous2",
+                          n_visit_hard_trigger ~ "continuous2"),
+              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                               "{min}, {max}"),
+              digits = list(all_continuous() ~ c(0))) %>%
+  bold_labels() %>%
+  modify_header(label = "")  
+
+```
+ 
+
+## Trigger frequency
+
+### Soft triggers
 
 ```{r}
 # overview of number of surveys completed and their outcome wrt soft triggers - stacked bar graph
@@ -1380,215 +1426,7 @@ triggers_long %>%
 
 ```
 
-### Domains
-
-```{r}
-# heat map showing frequency of soft triggers for each domain 
-triggers_domain_soft <- triggers_long %>%
-  group_by(visit) %>% 
-  mutate(n_visit = n()) %>% 
-  pivot_longer(
-    cols = c(
-      soft_anxious,
-      soft_discouraged,
-      soft_fatigue,
-      soft_general_pain,
-      soft_insomnia,
-      soft_joint_pain,
-      soft_sad,
-      soft_social_isolation
-    ),
-    names_to = "domain",
-    values_to = "trigger"
-  ) %>%
-  mutate(
-    domain = factor(
-      domain,
-      levels = c(
-        "soft_anxious",
-        "soft_sad",
-        "soft_discouraged",
-        "soft_social_isolation",
-        "soft_fatigue",
-        "soft_insomnia",
-        "soft_general_pain",
-        "soft_joint_pain"),
-      labels = c("Anxious", "Sad", "Discouraged", "Socialization", "Fatigue", "Insomnia", "General pain", "Joint pain"))) %>% 
-  group_by(visit, domain, n_visit) %>% 
-  reframe(n_triggered = sum(trigger=="Yes", na.rm=TRUE),
-            prop_triggered = n_triggered/n_visit) %>% 
-  distinct() %>% 
-  mutate(month = gsub("Month ", "", visit), 
-         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
-  group_by(domain) %>%
-  mutate(domain_mean = mean(prop_triggered, na.rm = TRUE)) %>%
-  ungroup() %>%
-  mutate(domain = forcats::fct_reorder(domain, domain_mean))
-
-# triggers_domain_soft %>% 
-#   select(domain, month, prop_triggered) %>% 
-#   write.csv(here("data", "soft_trigger_domains.csv"), row.names=FALSE)
-
-ggplot(triggers_domain_soft,
-       aes(x = month, y = domain, fill = prop_triggered)) +
-  geom_tile(color = "white") +
-  scale_fill_gradient(low = "white", high = "#1b7837") +
-  labs(
-    x = "Month",
-    y = "Domain",
-    fill = "Proportion \nTriggered",
-    title = "Proportion of Each Domain \nwith a Soft Trigger at Each Month"
-  ) +
-  theme_minimal() +
-  theme(
-    panel.grid = element_blank(),
-    plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-    legend.text = element_text(colour="black", size = 14),
-    legend.title = element_text(colour="black", size = 14),
-    axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-    axis.text.x = element_text(size=14),
-    axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-    axis.text.y = element_text(size=14)) +
-  geom_text(
-    aes(label = scales::percent(prop_triggered, accuracy = 1),
-        color = prop_triggered > 0.4),
-    size = 3.5,
-    show.legend = FALSE
-  ) +
-  scale_color_manual(values = c("black", "white"))
-
-ggplot(triggers_domain_soft,
-       aes(x = month, y = prop_triggered, color = domain, group = domain)) +
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 2) +
-  scale_color_manual(
-    values = c(
-      "Discouraged" = "#a1d99b",
-      "Socialization"  = "#74c476",
-      "Sad"      = "#238b45",
-      "Anxious"    = "#005a32",
-      "Insomnia" = "#9e9ac8",
-      "Fatigue" = "#6a51a3",
-      "General pain" = "#feb24c",
-      "Joint pain" = "#fc4e2a"
-    )
-  ) +
-  scale_y_continuous(
-    limits = c(0, 0.60),
-    labels = scales::percent
-  ) +
-  labs(
-    x = "Month",
-    y = "Proportion Triggered",
-    color = NULL,
-    title = "Proportion of Each Domain\nwith a Soft Trigger Over Time"
-  ) +
-  guides(fill = guide_legend(ncol =4)) +
-  theme_minimal() +
-  theme(
-    panel.grid.minor = element_blank(),
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "bottom",
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 14),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14)
-  )
-
-```
-
-```{r}
-# frequency of each soft trigger domain - ever for each patient
-triggers_long %>% 
-  group_by(subject) %>% 
-  summarize(any_anxious = max(as.numeric(soft_anxious)) - 1,
-        any_sad = max(as.numeric(soft_sad)) - 1,
-        any_discouraged = max(as.numeric(soft_discouraged)) - 1,
-        any_social_isolation = max(as.numeric(soft_social_isolation)) - 1,
-        any_fatigue = max(as.numeric(soft_fatigue)) - 1,
-        any_insomnia = max(as.numeric(soft_insomnia)) - 1,
-        any_general_pain = max(as.numeric(soft_general_pain)) - 1,
-        any_joint_pain = max(as.numeric(soft_joint_pain)) - 1) %>% 
-  ungroup() %>% 
-  summarize(any_anxious = sum(any_anxious),
-            any_sad = sum(any_sad),
-            any_discouraged = sum(any_discouraged),
-            any_social_isolation = sum(any_social_isolation),
-            any_fatigue = sum(any_fatigue),
-            any_insomnia = sum(any_insomnia),
-            any_general_pain = sum(any_general_pain),
-            any_joint_pain = sum(any_joint_pain)) %>% 
-  pivot_longer(cols = everything(), names_to = "domain", values_to = "freq") %>% 
-  mutate(p_freq = freq/n_intervention*100,
-             domain = factor(
-      domain,
-      levels = c(
-        "any_sad",
-        "any_fatigue",
-        "any_insomnia",
-        "any_anxious",
-        "any_joint_pain",
-        "any_general_pain",
-        "any_discouraged",
-        "any_social_isolation"),
-      labels = c("Sad", "Fatigue", "Insomnia", "Anxious", "Joint pain", "General pain", "Discouraged", "Socialization"))) %>% 
-  ggplot() +
-  geom_bar(width=.75,
-           stat="identity",
-           aes(x=reorder(domain, p_freq), y=p_freq),
-           fill="#008837") +
-  coord_flip() +
-  labs(x = "Domain",
-       y = "Percentage of Participants",
-       fill = NULL,
-       title = "Proportion of Participants Ever \nHaving a Soft Trigger for Each Domain") +
-  ylim(0, 80) +
-  theme_bw() +  
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14))   
-
-```
-
-### Self management
-
-```{r}
-# out of those with soft triggers, number that accessed self management tool
-triggers_long %>% 
-  filter(soft_trigger == "Yes") %>% 
-  group_by(visit) %>% 
-  mutate(n_soft = n(),
-         n_access = sum(self_mgmt=="Yes")) %>% 
-  ungroup() %>% 
-  filter(self_mgmt=="Yes") %>% 
-  select(visit, n_access, n_soft) %>% 
-  distinct() %>% 
-  mutate(p_freq = n_access/n_soft * 100,
-         month = gsub("Month ", "", visit), 
-         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
-  ggplot() +
-  geom_bar(width=.75, stat="identity",
-           aes(x=month, y=p_freq), fill="#008837") +
-  labs(x = "Month",
-       y = "Percentage of Participants",
-       fill = NULL,
-       title = "Self-Management Utilization at Each Month\n Among Participants with Soft Triggers") +
-  ylim(0, 50) +
-  theme_bw() +  
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14)) 
-
-```
-
-## Hard triggers
-
+### Hard triggers
 ```{r}
 # self management
 # overview of number of surveys completed and their outcome wrt hard triggers - stacked bar graph
@@ -1727,10 +1565,49 @@ triggers_long %>%
 
 ```
 
-### Domains
+### Soft vs. hard triggers (juicy fruit)
+```{r, fig.height=7, fig.width=12}
+triggers_domain_soft <- triggers_long %>%
+  group_by(visit) %>% 
+  mutate(n_visit = n()) %>% 
+  pivot_longer(
+    cols = c(
+      soft_anxious,
+      soft_discouraged,
+      soft_fatigue,
+      soft_general_pain,
+      soft_insomnia,
+      soft_joint_pain,
+      soft_sad,
+      soft_social_isolation
+    ),
+    names_to = "domain",
+    values_to = "trigger"
+  ) %>%
+  mutate(
+    domain = factor(
+      domain,
+      levels = c(
+        "soft_anxious",
+        "soft_sad",
+        "soft_discouraged",
+        "soft_social_isolation",
+        "soft_fatigue",
+        "soft_insomnia",
+        "soft_general_pain",
+        "soft_joint_pain"),
+      labels = c("Anxious", "Sad", "Discouraged", "Socialization", "Fatigue", "Insomnia", "General pain", "Joint pain"))) %>% 
+  group_by(visit, domain, n_visit) %>% 
+  reframe(n_triggered = sum(trigger=="Yes", na.rm=TRUE),
+            prop_triggered = n_triggered/n_visit) %>% 
+  distinct() %>% 
+  mutate(month = gsub("Month ", "", visit), 
+         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
+  group_by(domain) %>%
+  mutate(domain_mean = mean(prop_triggered, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(domain = forcats::fct_reorder(domain, domain_mean))
 
-```{r}
-# heat map showing frequency of hard triggers for each domain 
 triggers_domain_hard <- triggers_long %>%
   group_by(visit) %>% 
   mutate(n_visit = n()) %>% 
@@ -1773,314 +1650,6 @@ triggers_domain_hard <- triggers_long %>%
   mutate(domain = forcats::fct_reorder(domain, domain_mean))
 
 
-ggplot(triggers_domain_hard,
-       aes(x = month, y = domain, fill = prop_triggered)) +
-  geom_tile(color = "white") +
-  scale_fill_gradient(low = "white", high = "#1b7837",
-                      labels = scales::percent) +
-  labs(
-    x = "Month",
-    y = "Domain",
-    fill = "Proportion \nTriggered",
-    title = "Proportion of Each Domain \nwith a Hard Trigger at Each Month"
-  ) +
-  theme_minimal() +
-  theme(
-    panel.grid = element_blank(),
-    plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-    legend.text = element_text(colour="black", size = 14),
-    legend.title = element_text(colour="black", size = 14),
-    axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-    axis.text.x = element_text(size=14),
-    axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-    axis.text.y = element_text(size=14))  +
-  geom_text(
-    aes(label = scales::percent(prop_triggered, accuracy = 1),
-        color = prop_triggered > 0.15),
-    size = 3.5,
-    show.legend = FALSE
-  ) +
-  scale_color_manual(values = c("black", "white"))
-
-
-ggplot(triggers_domain_hard,
-       aes(x = month, y = prop_triggered, color = domain, group = domain)) +
-  geom_line(linewidth = 1.2) +
-  geom_point(size = 2) +
-  scale_color_manual(
-    values = c(
-      "Discouraged" = "#a1d99b",
-      "Socialization"  = "#74c476",
-      "Sad"      = "#238b45",
-      "Anxious"    = "#005a32",
-      "Insomnia" = "#9e9ac8",
-      "Fatigue" = "#6a51a3",
-      "General pain" = "#feb24c",
-      "Joint pain" = "#fc4e2a"
-    )
-  ) +
-  scale_y_continuous(
-    limits = c(0, 0.60),
-    labels = scales::percent
-  ) +
-  labs(
-    x = "Month",
-    y = "Proportion Triggered",
-    color = NULL,
-    title = "Proportion of Each Domain\nwith a Hard Trigger Over Time"
-  ) +
-  guides(fill = guide_legend(ncol =4)) +
-  theme_minimal() +
-  theme(
-    panel.grid.minor = element_blank(),
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "bottom",
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 14),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14)
-  )
-
-```
-
-```{r}
-# frequency of each hard trigger domain - ever for each patient
-triggers_long %>% 
-  group_by(subject) %>% 
-  summarize(any_anxious = max(as.numeric(hard_anxious)) - 1,
-        any_sad = max(as.numeric(hard_sad)) - 1,
-        any_discouraged = max(as.numeric(hard_discouraged)) - 1,
-        any_social_isolation = max(as.numeric(hard_social_isolation)) - 1,
-        any_fatigue = max(as.numeric(hard_fatigue)) - 1,
-        any_insomnia = max(as.numeric(hard_insomnia)) - 1,
-        any_general_pain = max(as.numeric(hard_general_pain)) - 1,
-        any_joint_pain = max(as.numeric(hard_joint_pain)) - 1) %>% 
-  ungroup() %>% 
-  summarize(any_anxious = sum(any_anxious),
-            any_sad = sum(any_sad),
-            any_discouraged = sum(any_discouraged),
-            any_social_isolation = sum(any_social_isolation),
-            any_fatigue = sum(any_fatigue),
-            any_insomnia = sum(any_insomnia),
-            any_general_pain = sum(any_general_pain),
-            any_joint_pain = sum(any_joint_pain)) %>% 
-  pivot_longer(cols = everything(), names_to = "domain", values_to = "freq") %>% 
-  mutate(p_freq = freq/n_intervention*100,
-         domain = factor(
-           domain,
-           levels = c(
-             "any_discouraged",
-             "any_social_isolation",
-             "any_anxious",
-             "any_general_pain",
-             "any_sad",
-             "any_joint_pain",
-             "any_insomnia",
-             "any_fatigue"),
-           labels = c("Discouraged", "Socialization", "Anxious", 
-                      "General pain", "Sad",
-                      "Joint pain", "Insomnia", "Fatigue"))) %>% 
-  ggplot() +
-  geom_bar(width=.75,
-           stat="identity",
-           aes(x=domain, y=p_freq),
-           fill="#008837") +
-  coord_flip() +
-  labs(x = "Domain",
-       y = "Percentage of Participants",
-       fill = NULL,
-       title = "Proportion of Participants Ever \nHaving a Hard Trigger for Each Domain") +
-  ylim(0, 80) +
-  theme_bw() +  
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        legend.text = element_text(size = 14),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14))   
-
-```
-
-### Self management
-
-```{r}
-# out of those with hard triggers, number that accessed self management tool
-triggers_long %>% 
-  filter(hard_trigger == "Yes") %>% 
-  group_by(visit) %>% 
-  mutate(n_hard = n(),
-         n_access = sum(self_mgmt=="Yes")) %>% 
-  ungroup() %>% 
-  filter(self_mgmt=="Yes") %>% 
-  select(visit, n_access, n_hard) %>% 
-  distinct() %>% 
-  mutate(p_freq = n_access/n_hard * 100,
-         month = gsub("Month ", "", visit), 
-         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
-  ggplot() +
-  geom_bar(width=.75, stat="identity",
-           aes(x=month, y=p_freq), fill="#008837") +
-  labs(x = "Month",
-       y = "Percentage of Participants",
-       fill = NULL,
-       title = "Self-Management Utilization at Each Month\n Among Participants with Hard Triggers") +
-  ylim(0, 50) +
-  theme_bw() +  
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14)) 
-
-```
-
-### Clinician intervention
-
-```{r}
-# intervention report completion rates and timeliness (within 48 business hours)
-# stacked bar graph of proportion that completed report within 48 business hours and >48 hours
-# out of those with hard triggers, at each time point
-
-# don't count weekends 
-create.calendar(
-  name = "weekdays",
-  weekdays = c("saturday", "sunday")
-)
-
-triggers_long %>% 
-  filter(hard_trigger=="Yes" & clinician_status!="Not Applicable") %>% 
-  group_by(visit) %>% 
-  mutate(n_hard = n(),
-         n_response = sum(clinician_status=="Completed")) %>% 
-  ungroup() %>% 
-  mutate(
-    empro_time = as.POSIXct(EMPRO_questionnaire_completion_date,
-                            format = "%d-%b-%Y %H:%M:%S",
-                            tz = "UTC"),
-    
-    clinician_time = as.POSIXct(clinician_survey_completion_date,
-                                format = "%d-%b-%Y %H:%M:%S",
-                                tz = "UTC"),
-    deadline = as.POSIXct(
-      add.bizdays(as.Date(empro_time), 2, "weekdays"),
-      tz = "UTC"),
-    response = case_when(
-      clinician_status=="Completed" & delayed_by_holiday=="TRUE" ~ 1,
-      clinician_status=="Completed" & 
-        clinician_time >= empro_time &
-        clinician_time <= deadline  ~ 1,
-      clinician_status=="Completed" ~ 2,
-      TRUE ~ 3
-    )) %>% 
-  filter(!is.na(response)) %>% 
-  group_by(visit, response, n_hard) %>% 
-  summarize(n_freq = n()) %>% 
-  ungroup() %>% 
-  mutate(p_freq = n_freq/n_hard * 100,
-         response = factor(response, 
-                           levels = 1:3,
-                           labels = c("Within 48 hours",
-                                      "After 48 hours",
-                                      "Missed response")),
-         month = gsub("Month ", "", visit), 
-         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
-  ggplot() +
-  geom_bar(width=.75,
-           stat="identity", position=position_stack(reverse = TRUE),
-           aes(x=month, y=p_freq, fill=response)) +
-  scale_fill_manual(
-    values = c("#a6dba0", 
-               "#008837",
-               "grey60") ) +
-  labs(x = "Month",
-       y = "Percentage of Participants",
-       fill = NULL,
-       title = "Hard Trigger Intervention at Each Month\n Among Participants with Hard Triggers") +
-  guides(fill = guide_legend(ncol = 3)) +
-  theme_bw() +  
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        legend.text = element_text(colour="black", size = 14),
-        legend.title = element_text(colour="black", size = 14),
-        legend.position = "bottom", 
-        #legend.position.inside = c(0.8, 0.2),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14)) 
-```
-
-### Persistent hard triggers
-
-```{r}
-n_persistent_triggers <- triggers_long %>% 
-  filter(!is.na(opted_out_domains)) %>% 
-  nrow()
-n_persistent_people <- triggers_long %>% 
-  filter(!is.na(opted_out_domains)) %>% 
-  distinct(subject) %>% 
-  nrow()
-n_persistent_general_pain <- triggers_long %>% 
-  filter(grepl("general_pain", opted_out_domains)) %>% 
-  nrow()
-n_persistent_fatigue <- triggers_long %>% 
-  filter(grepl("fatigue", opted_out_domains)) %>% 
-  nrow()
-n_persistent_insomnia <- triggers_long %>% 
-  filter(grepl("insomnia", opted_out_domains)) %>% 
-  nrow()
-n_persistent_joint_pain <- triggers_long %>% 
-  filter(grepl("joint_pain", opted_out_domains)) %>% 
-  nrow()
-n_persistent_social_isolation <- triggers_long %>% 
-  filter(grepl("social_isolation", opted_out_domains)) %>% 
-  nrow()
-
-# number of patients eligible for persistent hard trigger opt out
-
-persist <- triggers_long %>%
-  mutate(month = gsub("Month ", "", visit), 
-         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
-  arrange(subject, month) %>%   # ensure correct order
-  group_by(subject) %>%
-  mutate(
-    across(
-      starts_with("hard_"),
-      ~ (. == "Yes" &
-         dplyr::lag(. , 1) == "Yes" &
-         dplyr::lag(. , 2) == "Yes"),
-      .names = "{.col}_3inrow"
-    )
-  ) %>%
-  ungroup() %>% 
-  # flag for whether persistent hard trigger was after opt out feature approval
-  mutate(empro_time = as.POSIXct(EMPRO_questionnaire_completion_date,
-                            format = "%d-%b-%Y %H:%M:%S",
-                            tz = "UTC"),
-    opt_out = case_when(
-    site=="Guys St. Thomas NHS Foundation Trust" & empro_time>=as.Date("2024-09-11") ~ 1,
-    site=="University Hospital Southampton NHS Foundation Trust" & empro_time>=as.Date("2024-09-19") ~ 1,
-    TRUE & empro_time>=as.Date("2024-07-10") ~ 1,
-    TRUE ~ 0
-  ))
-
-persist %>% 
-  select(ends_with("_3inrow")) %>% 
-  select(-hard_trigger_domains_3inrow, -hard_trigger_3inrow) %>% 
-  tbl_summary()
-
-persist %>% 
-  filter(opt_out==1) %>% 
-  select(ends_with("_3inrow")) %>% 
-  select(-hard_trigger_domains_3inrow, -hard_trigger_3inrow) %>% 
-  tbl_summary()
-```
-
-There were `r n_persistent_triggers` where `r n_persistent_people` participants opted out of persistent hard triggers. This included `r n_persistent_general_pain` general pain, `r n_persistent_joint_pain` joint pain, `r n_persistent_fatigue` fatigue, `r n_persistent_insomnia` insomnia, and `r n_persistent_social_isolation` socialization.
-
-## Soft vs. Hard
-```{r, fig.height=7, fig.width=12}
 all_triggers_long <- triggers_domain_soft %>% 
   mutate(trigger = "Soft") %>% 
   bind_rows(triggers_domain_hard %>% mutate(trigger = "Hard")) %>% 
@@ -2142,6 +1711,792 @@ ggplot(all_triggers_long,
 
 ```
 
+## Domains
+
+### Soft triggers
+
+```{r}
+# heat map showing frequency of soft triggers for each domain 
+
+# triggers_domain_soft %>% 
+#   select(domain, month, prop_triggered) %>% 
+#   write.csv(here("data", "soft_trigger_domains.csv"), row.names=FALSE)
+
+# ggplot(triggers_domain_soft,
+#        aes(x = month, y = domain, fill = prop_triggered)) +
+#   geom_tile(color = "white") +
+#   scale_fill_gradient(low = "white", high = "#1b7837") +
+#   labs(
+#     x = "Month",
+#     y = "Domain",
+#     fill = "Proportion \nTriggered",
+#     title = "Proportion of Each Domain \nwith a Soft Trigger at Each Month"
+#   ) +
+#   theme_minimal() +
+#   theme(
+#     panel.grid = element_blank(),
+#     plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+#     legend.text = element_text(colour="black", size = 14),
+#     legend.title = element_text(colour="black", size = 14),
+#     axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+#     axis.text.x = element_text(size=14),
+#     axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+#     axis.text.y = element_text(size=14)) +
+#   geom_text(
+#     aes(label = scales::percent(prop_triggered, accuracy = 1),
+#         color = prop_triggered > 0.4),
+#     size = 3.5,
+#     show.legend = FALSE
+#   ) +
+#   scale_color_manual(values = c("black", "white"))
+# 
+# ggplot(triggers_domain_soft,
+#        aes(x = month, y = prop_triggered, color = domain, group = domain)) +
+#   geom_line(linewidth = 1.2) +
+#   geom_point(size = 2) +
+#   scale_color_manual(
+#     values = c(
+#       "Discouraged" = "#a1d99b",
+#       "Socialization"  = "#74c476",
+#       "Sad"      = "#238b45",
+#       "Anxious"    = "#005a32",
+#       "Insomnia" = "#9e9ac8",
+#       "Fatigue" = "#6a51a3",
+#       "General pain" = "#feb24c",
+#       "Joint pain" = "#fc4e2a"
+#     )
+#   ) +
+#   scale_y_continuous(
+#     limits = c(0, 0.60),
+#     labels = scales::percent
+#   ) +
+#   labs(
+#     x = "Month",
+#     y = "Proportion Triggered",
+#     color = NULL,
+#     title = "Proportion of Each Domain\nwith a Soft Trigger Over Time"
+#   ) +
+#   guides(fill = guide_legend(ncol =4)) +
+#   theme_minimal() +
+#   theme(
+#     panel.grid.minor = element_blank(),
+#     plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+#     legend.text = element_text(size = 14),
+#     legend.title = element_text(size = 14),
+#     legend.position = "bottom",
+#     axis.title.x = element_text(face = "bold", size = 16),
+#     axis.text.x = element_text(size = 14),
+#     axis.title.y = element_text(face = "bold", size = 18),
+#     axis.text.y = element_text(size = 14)
+#   )
+
+```
+
+```{r}
+# frequency of each soft trigger domain - ever for each patient
+triggers_long %>% 
+  group_by(subject) %>% 
+  summarize(any_anxious = max(as.numeric(soft_anxious)) - 1,
+        any_sad = max(as.numeric(soft_sad)) - 1,
+        any_discouraged = max(as.numeric(soft_discouraged)) - 1,
+        any_social_isolation = max(as.numeric(soft_social_isolation)) - 1,
+        any_fatigue = max(as.numeric(soft_fatigue)) - 1,
+        any_insomnia = max(as.numeric(soft_insomnia)) - 1,
+        any_general_pain = max(as.numeric(soft_general_pain)) - 1,
+        any_joint_pain = max(as.numeric(soft_joint_pain)) - 1) %>% 
+  ungroup() %>% 
+  summarize(any_anxious = sum(any_anxious),
+            any_sad = sum(any_sad),
+            any_discouraged = sum(any_discouraged),
+            any_social_isolation = sum(any_social_isolation),
+            any_fatigue = sum(any_fatigue),
+            any_insomnia = sum(any_insomnia),
+            any_general_pain = sum(any_general_pain),
+            any_joint_pain = sum(any_joint_pain)) %>% 
+  pivot_longer(cols = everything(), names_to = "domain", values_to = "freq") %>% 
+  mutate(p_freq = freq/n_intervention*100,
+             domain = factor(
+      domain,
+      levels = c(
+        "any_sad",
+        "any_fatigue",
+        "any_insomnia",
+        "any_anxious",
+        "any_joint_pain",
+        "any_general_pain",
+        "any_discouraged",
+        "any_social_isolation"),
+      labels = c("Sad", "Fatigue", "Insomnia", "Anxious", "Joint pain", "General pain", "Discouraged", "Socialization"))) %>% 
+  ggplot() +
+  geom_bar(width=.75,
+           stat="identity",
+           aes(x=reorder(domain, p_freq), y=p_freq),
+           fill="#008837") +
+  coord_flip() +
+  labs(x = "Domain",
+       y = "Percentage of Participants",
+       fill = NULL,
+       title = "Proportion of Participants Ever \nHaving a Soft Trigger for Each Domain") +
+  ylim(0, 80) +
+  theme_bw() +  
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14))   
+
+```
+
+### Hard triggers
+```{r}
+# heat map showing frequency of hard triggers for each domain 
+
+# ggplot(triggers_domain_hard,
+#        aes(x = month, y = domain, fill = prop_triggered)) +
+#   geom_tile(color = "white") +
+#   scale_fill_gradient(low = "white", high = "#1b7837",
+#                       labels = scales::percent) +
+#   labs(
+#     x = "Month",
+#     y = "Domain",
+#     fill = "Proportion \nTriggered",
+#     title = "Proportion of Each Domain \nwith a Hard Trigger at Each Month"
+#   ) +
+#   theme_minimal() +
+#   theme(
+#     panel.grid = element_blank(),
+#     plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+#     legend.text = element_text(colour="black", size = 14),
+#     legend.title = element_text(colour="black", size = 14),
+#     axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+#     axis.text.x = element_text(size=14),
+#     axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+#     axis.text.y = element_text(size=14))  +
+#   geom_text(
+#     aes(label = scales::percent(prop_triggered, accuracy = 1),
+#         color = prop_triggered > 0.15),
+#     size = 3.5,
+#     show.legend = FALSE
+#   ) +
+#   scale_color_manual(values = c("black", "white"))
+# 
+# 
+# ggplot(triggers_domain_hard,
+#        aes(x = month, y = prop_triggered, color = domain, group = domain)) +
+#   geom_line(linewidth = 1.2) +
+#   geom_point(size = 2) +
+#   scale_color_manual(
+#     values = c(
+#       "Discouraged" = "#a1d99b",
+#       "Socialization"  = "#74c476",
+#       "Sad"      = "#238b45",
+#       "Anxious"    = "#005a32",
+#       "Insomnia" = "#9e9ac8",
+#       "Fatigue" = "#6a51a3",
+#       "General pain" = "#feb24c",
+#       "Joint pain" = "#fc4e2a"
+#     )
+#   ) +
+#   scale_y_continuous(
+#     limits = c(0, 0.60),
+#     labels = scales::percent
+#   ) +
+#   labs(
+#     x = "Month",
+#     y = "Proportion Triggered",
+#     color = NULL,
+#     title = "Proportion of Each Domain\nwith a Hard Trigger Over Time"
+#   ) +
+#   guides(fill = guide_legend(ncol =4)) +
+#   theme_minimal() +
+#   theme(
+#     panel.grid.minor = element_blank(),
+#     plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+#     legend.text = element_text(size = 14),
+#     legend.title = element_text(size = 14),
+#     legend.position = "bottom",
+#     axis.title.x = element_text(face = "bold", size = 16),
+#     axis.text.x = element_text(size = 14),
+#     axis.title.y = element_text(face = "bold", size = 18),
+#     axis.text.y = element_text(size = 14)
+#   )
+
+```
+
+```{r}
+# frequency of each hard trigger domain - ever for each patient
+triggers_long %>% 
+  group_by(subject) %>% 
+  summarize(any_anxious = max(as.numeric(hard_anxious)) - 1,
+        any_sad = max(as.numeric(hard_sad)) - 1,
+        any_discouraged = max(as.numeric(hard_discouraged)) - 1,
+        any_social_isolation = max(as.numeric(hard_social_isolation)) - 1,
+        any_fatigue = max(as.numeric(hard_fatigue)) - 1,
+        any_insomnia = max(as.numeric(hard_insomnia)) - 1,
+        any_general_pain = max(as.numeric(hard_general_pain)) - 1,
+        any_joint_pain = max(as.numeric(hard_joint_pain)) - 1) %>% 
+  ungroup() %>% 
+  summarize(any_anxious = sum(any_anxious),
+            any_sad = sum(any_sad),
+            any_discouraged = sum(any_discouraged),
+            any_social_isolation = sum(any_social_isolation),
+            any_fatigue = sum(any_fatigue),
+            any_insomnia = sum(any_insomnia),
+            any_general_pain = sum(any_general_pain),
+            any_joint_pain = sum(any_joint_pain)) %>% 
+  pivot_longer(cols = everything(), names_to = "domain", values_to = "freq") %>% 
+  mutate(p_freq = freq/n_intervention*100,
+         domain = factor(
+           domain,
+           levels = c(
+             "any_discouraged",
+             "any_social_isolation",
+             "any_anxious",
+             "any_general_pain",
+             "any_sad",
+             "any_joint_pain",
+             "any_insomnia",
+             "any_fatigue"),
+           labels = c("Discouraged", "Socialization", "Anxious", 
+                      "General pain", "Sad",
+                      "Joint pain", "Insomnia", "Fatigue"))) %>% 
+  ggplot() +
+  geom_bar(width=.75,
+           stat="identity",
+           aes(x=domain, y=p_freq),
+           fill="#008837") +
+  coord_flip() +
+  labs(x = "Domain",
+       y = "Percentage of Participants",
+       fill = NULL,
+       title = "Proportion of Participants Ever \nHaving a Hard Trigger for Each Domain") +
+  ylim(0, 80) +
+  theme_bw() +  
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        legend.text = element_text(size = 14),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14))   
+
+```
+
+## Survey questions
+Each figure shows the participants who had a hard trigger on that particular question.
+
+```{r}
+# function for heat map
+
+#' Build a trigger-status heatmap for one PRO-CTCAE / EORTC item
+#'
+#'  data          Long-format data with subject, visit, and the item column
+#'  outcome_var   String name of the response column (e.g. "ironman_ss_1")
+#'  response_levels Character vector of response levels, in order from
+#'                        least to most severe (length 4 or 5)
+make_trigger_heatmap <- function(data,
+                                 outcome_var,
+                                 response_levels) {
+  
+  visit_order = paste("Month", 1:12)
+  n_levels     <- length(response_levels)
+  severe_cut   <- n_levels - 1   # top two categories, whatever the scale length
+  title <- var_label(data[,outcome_var])
+  
+  outcome_sym  <- sym(outcome_var)
+
+  # --- 1. Prep + classify none/soft/hard per visit ---
+  dat_long <- data %>%
+    mutate(
+      visit   := factor(visit, levels = visit_order, labels=paste(1:12)),
+      !!outcome_sym := factor(!!outcome_sym, levels = response_levels),
+      response_num  = as.integer(!!outcome_sym)
+    ) %>%
+    arrange(subject, visit) %>%
+    group_by(subject) %>%
+    mutate(
+      baseline_score = first(response_num),
+      
+      worsening_from_baseline = response_num - baseline_score >= 2,
+      worsening_from_prior    = response_num - lag(response_num) >= 2,
+      severe_response         = response_num >= severe_cut,
+      
+      event_flag = worsening_from_baseline |
+        coalesce(worsening_from_prior, FALSE) |
+        severe_response,
+      
+      flag_hard_trigger = ifelse(all(is.na(event_flag)), NA_real_,
+                                 max(event_flag, na.rm = TRUE)),
+      
+      soft_trigger = (
+        (response_num - baseline_score == 1) |
+          coalesce(response_num - lag(response_num) == 1, FALSE)
+      ) & !event_flag,
+      
+      state = case_when(
+        event_flag   ~ "hard",
+        soft_trigger ~ "soft",
+        TRUE         ~ "none"
+      )
+    ) %>%
+    ungroup()
+  
+  # --- 2. Mark persistent (3rd+ consecutive hard trigger) ---
+  mark_persistent <- function(state) {
+    out <- state
+    r <- rle(state == "hard")
+    idx <- 1
+    for (i in seq_along(r$lengths)) {
+      len <- r$lengths[i]
+      if (isTRUE(r$values[i]) && len >= 3) {
+        out[(idx + 2):(idx + len - 1)] <- "persistent"
+      }
+      idx <- idx + len
+    }
+    out
+  }
+  
+  dat_long <- dat_long %>%
+    arrange(subject, visit) %>%
+    group_by(subject) %>%
+    mutate(state = mark_persistent(state)) %>%
+    ungroup() %>%
+    mutate(state = factor(state, levels = c("none", "soft", "hard", "persistent")))
+  
+  # --- 3. Restrict to subjects with at least one hard trigger ---
+  dat <- dat_long %>%
+    filter(flag_hard_trigger == 1)
+  
+  # --- 4. Order patients: burden desc, persistence, earliest trigger ---
+  subject_order <- dat %>%
+    group_by(subject) %>%
+    summarise(
+      n_hard         = sum(state %in% c("hard", "persistent")),
+      has_persistent = any(state == "persistent"),
+      first_trigger  = min(as.integer(visit)[state %in% c("hard", "persistent")],
+                           default = Inf),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(n_hard), desc(has_persistent), first_trigger) %>%
+    pull(subject)
+  
+  dat <- dat %>%
+    mutate(subject := factor(subject, levels = rev(subject_order)))
+  
+  # number of participants with a hard trigger
+  n_trigger <- dat |> group_by(subject) |> slice(1) |> nrow()
+  
+  # --- 5. Plot ---
+  ggplot(dat, aes(x = visit, y = subject, fill = state)) +
+    geom_tile(color = "white", linewidth = 0.3) +
+    scale_fill_manual(
+      values = c(
+        "none"       = "grey85",
+        "soft"       = "#B5D4F4",
+        "hard"       = "#FAC775",
+        "persistent" = "#E24B4A"
+      ),
+      labels = c(
+        "none"       = "No trigger",
+        "soft"       = "Soft trigger",
+        "hard"       = "Hard trigger",
+        "persistent" = "Persistent hard trigger"
+      ),
+      name = "Trigger status",
+      drop = FALSE
+    ) +
+    labs(x = "Month", 
+         y = "Participant", 
+         title = str_wrap(paste0(title, " (N=", n_trigger, ")"), width = 50)) +
+    theme_minimal(base_size = 12) +
+    theme(
+      axis.text.y = element_blank(),
+      axis.text.x = element_text(size = 12),
+      panel.grid  = element_blank(),
+      plot.title  = element_text(hjust = 0.5)
+    )
+}
+
+# response options
+response_freq <- c(
+  "Never",
+  "Rarely",
+  "Occasionally",
+  "Frequently",
+  "Almost constantly"
+)
+response_sev <- c(
+  "None",
+  "Mild",
+  "Moderate",
+  "Severe",
+  "Very severe"
+)
+response_much <- c(
+  "Not at all",
+  "A little bit",
+  "Somewhat",
+  "Quite a bit",
+  "Very much"
+)
+response_much4 <- c(
+  "Not at all",
+  "A little",
+  "Quite a bit",
+  "Very much"
+)
+
+```
+
+### General pain
+```{r}
+make_trigger_heatmap(triggers_long, "ironman_ss_1", response_freq)
+make_trigger_heatmap(triggers_long, "ironman_ss_2", response_sev)
+make_trigger_heatmap(triggers_long, "ironman_ss_3", response_much)
+```
+
+### Joint pain
+```{r}
+make_trigger_heatmap(triggers_long, "ironman_ss_4", response_freq)
+make_trigger_heatmap(triggers_long, "ironman_ss_5", response_sev)
+make_trigger_heatmap(triggers_long, "ironman_ss_6", response_much)
+```
+
+### Insomnia
+```{r}
+make_trigger_heatmap(triggers_long, "ironman_ss_7", response_sev)
+make_trigger_heatmap(triggers_long, "ironman_ss_8", response_much)
+```
+
+### Fatigue
+```{r}
+make_trigger_heatmap(triggers_long, "ironman_ss_9", response_sev)
+make_trigger_heatmap(triggers_long, "ironman_ss_10", response_much)
+```
+
+### Anxious
+```{r}
+make_trigger_heatmap(triggers_long, "ironman_ss_11", response_freq)
+make_trigger_heatmap(triggers_long, "ironman_ss_12", response_sev)
+make_trigger_heatmap(triggers_long, "ironman_ss_13", response_much)
+```
+
+### Discouraged
+```{r}
+make_trigger_heatmap(triggers_long, "ironman_ss_14", response_freq)
+make_trigger_heatmap(triggers_long, "ironman_ss_15", response_sev)
+make_trigger_heatmap(triggers_long, "ironman_ss_16", response_much)
+```
+
+### Sad
+```{r}
+make_trigger_heatmap(triggers_long, "ironman_ss_17", response_freq)
+make_trigger_heatmap(triggers_long, "ironman_ss_18", response_sev)
+make_trigger_heatmap(triggers_long, "ironman_ss_19", response_much)
+```
+
+### Socialization
+```{r}
+make_trigger_heatmap(triggers_long, "ironman_ss_20", response_much4)
+```
+
+
+## Self management
+
+### Soft triggers
+
+```{r}
+# out of those with soft triggers, number that accessed self management tool
+triggers_long %>% 
+  filter(soft_trigger == "Yes") %>% 
+  group_by(visit) %>% 
+  mutate(n_soft = n(),
+         n_access = sum(self_mgmt=="Yes")) %>% 
+  ungroup() %>% 
+  filter(self_mgmt=="Yes") %>% 
+  select(visit, n_access, n_soft) %>% 
+  distinct() %>% 
+  mutate(p_freq = n_access/n_soft * 100,
+         month = gsub("Month ", "", visit), 
+         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
+  ggplot() +
+  geom_bar(width=.75, stat="identity",
+           aes(x=month, y=p_freq), fill="#008837") +
+  labs(x = "Month",
+       y = "Percentage of Participants",
+       fill = NULL,
+       title = "Self-Management Utilization at Each Month\n Among Participants with Soft Triggers") +
+  ylim(0, 50) +
+  theme_bw() +  
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14)) 
+
+```
+
+### Hard triggers
+
+```{r}
+# out of those with hard triggers, number that accessed self management tool
+triggers_long %>% 
+  filter(hard_trigger == "Yes") %>% 
+  group_by(visit) %>% 
+  mutate(n_hard = n(),
+         n_access = sum(self_mgmt=="Yes")) %>% 
+  ungroup() %>% 
+  filter(self_mgmt=="Yes") %>% 
+  select(visit, n_access, n_hard) %>% 
+  distinct() %>% 
+  mutate(p_freq = n_access/n_hard * 100,
+         month = gsub("Month ", "", visit), 
+         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
+  ggplot() +
+  geom_bar(width=.75, stat="identity",
+           aes(x=month, y=p_freq), fill="#008837") +
+  labs(x = "Month",
+       y = "Percentage of Participants",
+       fill = NULL,
+       title = "Self-Management Utilization at Each Month\n Among Participants with Hard Triggers") +
+  ylim(0, 50) +
+  theme_bw() +  
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14)) 
+
+```
+
+## Clinician intervention
+There were `r triggers_long |> filter(hard_trigger=="Yes") |> nrow()` hard triggers among `r triggers_long |> filter(hard_trigger=="Yes") |> group_by(subject) |> slice(1) |> nrow()` participants who ever had a hard trigger.
+```{r}
+# triggers_long %>% 
+#   filter(hard_trigger=="Yes" & clinician_status!="Not Applicable") |> 
+#   mutate(tot_resp = as.integer(!is.na(ironman_ss_post_tx_1_1))+ 
+#          as.integer(!is.na(ironman_ss_post_tx_1_2))+ 
+#          as.integer(!is.na(ironman_ss_post_tx_1_3))+ 
+#          as.integer(!is.na(ironman_ss_post_tx_1_4))+ 
+#          as.integer(!is.na(ironman_ss_post_tx_1_5))) |> 
+#   filter(tot_resp==0 & !is.na(clinician_survey_completion_date)) |> 
+#   select(user_id, subject, visit) |> 
+#   write.csv(here("data", "check_clinician_survey20260904.csv"))
+
+action <- triggers_long %>% 
+  filter(hard_trigger=="Yes") |> 
+  mutate(action1 = ifelse(!is.na(ironman_ss_post_tx_1_1), 1, 0),
+         action2 = ifelse(!is.na(ironman_ss_post_tx_1_2), 1, 0),
+         action3 = ifelse(!is.na(ironman_ss_post_tx_1_3), 1, 0),
+         action4 = ifelse(!is.na(ironman_ss_post_tx_1_4), 1, 0),
+         action5 = ifelse(!is.na(ironman_ss_post_tx_1_5), 1, 0),
+         no_resp = ifelse(is.na(ironman_ss_post_tx_2), 1, 0)) |> 
+  set_variable_labels(action1 = "Called and spoke with patient",
+                      action2 = "Sent a message through secure messaging system, awaiting response",
+                      action3 = "Contacted patient and scheduled follow up visit to review concerns",
+                      action4 = "Attempted to contact patient, but unable to reach patient within 48 hours of trigger notification",
+                      action5 = "Other",
+                      no_resp = "No action taken") |> 
+  select(starts_with("action"), no_resp) |>
+  tbl_summary()
+
+actionby <- triggers_long %>% 
+  filter(hard_trigger=="Yes") |> 
+  mutate(actionby1 = ifelse(!is.na(ironman_ss_post_tx_1_1), 1, 0),
+         actionby2 = ifelse(!is.na(ironman_ss_post_tx_1_2), 1, 0),
+         actionby3 = ifelse(!is.na(ironman_ss_post_tx_1_3), 1, 0),
+         actionby4 = ifelse(!is.na(ironman_ss_post_tx_1_4), 1, 0)) |> 
+  set_variable_labels(actionby1 = "Clinical research nurse",
+                      actionby2 = "Research staff",
+                      actionby3 = "Physician",
+                      actionby4 = "Other") |> 
+  select(starts_with("actionby")) |>
+  tbl_summary() 
+
+tbl_stack(list(action, actionby), 
+          group_header = c("Action taken", "Action taken by")) |> 
+  modify_footnote_header(
+    footnote = "Represents the number of questionnaires that had a hard trigger",
+    columns = all_stat_cols(),
+    replace = FALSE
+  ) |> 
+  modify_footnote_body(
+    footnote = "Indicates that text/details were entered in other action taken field",
+    columns = "label",
+    rows = variable == "action5" & row_type == "label"
+  ) |> 
+  modify_caption("**Action taken by clinical team for surveys resulting in hard triggers**") |> 
+  as_gt() %>%
+  gt::tab_style(
+    style = gt::cell_text(weight = "bold"),
+    locations = gt::cells_row_groups(groups = everything())
+  )
+
+```
+
+
+```{r}
+# intervention report completion rates and timeliness (within 48 business hours)
+# stacked bar graph of proportion that completed report within 48 business hours and >48 hours
+# out of those with hard triggers, at each time point
+
+# don't count weekends 
+create.calendar(
+  name = "weekdays",
+  weekdays = c("saturday", "sunday")
+)
+
+triggers_long %>% 
+  filter(hard_trigger=="Yes" & clinician_status!="Not Applicable") %>% 
+  group_by(visit) %>% 
+  mutate(n_hard = n(),
+         n_response = sum(clinician_status=="Completed")) %>% 
+  ungroup() %>% 
+  mutate(
+    empro_time = as.POSIXct(EMPRO_questionnaire_completion_date,
+                            format = "%d-%b-%Y %H:%M:%S"),
+    
+    clinician_time = as.POSIXct(ironman_ss_post_tx_2,
+                                format = "%Y-%m-%d"),
+    deadline = as.POSIXct(
+      add.bizdays(as.Date(empro_time), 2, "weekdays"),
+      tz = "UTC"),
+    response = case_when(
+      is.na(clinician_time) ~ 3,
+      clinician_status=="Completed" & delayed_by_holiday=="TRUE" ~ 1,
+      clinician_status=="Completed" & 
+        clinician_time <= deadline  ~ 1,
+      ironman_ss_post_tx_1_4=="Attempted to contact patient, but unable to reach patient within 48 hours of trigger notification" ~ 1,
+      clinician_status=="Completed" ~ 2,
+      TRUE ~ 3
+    )) %>% 
+  filter(!is.na(response)) %>% 
+  group_by(visit, response, n_hard) %>% 
+  summarize(n_freq = n(), .groups = "drop_last") %>% 
+  ungroup() %>% 
+  mutate(p_freq = n_freq/n_hard * 100,
+         response = factor(response, 
+                           levels = 1:3,
+                           labels = c("Within 2 business days",
+                                      "After 2 business days",
+                                      "Missed response")),
+         month = gsub("Month ", "", visit), 
+         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
+  ggplot() +
+  geom_bar(width=.75,
+           stat="identity", position=position_stack(reverse = TRUE),
+           aes(x=month, y=p_freq, fill=response)) +
+  scale_fill_manual(
+    values = c("#008837",
+               "#a6dba0",
+               "grey60") ) +
+  labs(x = "Month",
+       y = "Percentage of Participants",
+       fill = NULL,
+       title = "Hard Trigger Intervention at Each Month\n Among Participants with Hard Triggers") +
+  guides(fill = guide_legend(ncol = 3)) +
+  theme_bw() +  
+  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
+        legend.text = element_text(colour="black", size = 14),
+        legend.title = element_text(colour="black", size = 14),
+        legend.position = "bottom", 
+        #legend.position.inside = c(0.8, 0.2),
+        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
+        axis.text.x = element_text(size=14),
+        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
+        axis.text.y = element_text(size=14)) 
+```
+
+### Persistent hard triggers
+
+```{r}
+n_persistent_triggers <- triggers_long %>% 
+  filter(!is.na(opted_out_domains)) %>% 
+  nrow()
+n_persistent_people <- triggers_long %>% 
+  filter(!is.na(opted_out_domains)) %>% 
+  distinct(subject) %>% 
+  nrow()
+n_persistent_general_pain <- triggers_long %>% 
+  filter(grepl("general_pain", opted_out_domains)) %>% 
+  nrow()
+n_persistent_fatigue <- triggers_long %>% 
+  filter(grepl("fatigue", opted_out_domains)) %>% 
+  nrow()
+n_persistent_insomnia <- triggers_long %>% 
+  filter(grepl("insomnia", opted_out_domains)) %>% 
+  nrow()
+n_persistent_joint_pain <- triggers_long %>% 
+  filter(grepl("joint_pain", opted_out_domains)) %>% 
+  nrow()
+n_persistent_social_isolation <- triggers_long %>% 
+  filter(grepl("social_isolation", opted_out_domains)) %>% 
+  nrow()
+
+# number of patients eligible for persistent hard trigger opt out
+
+persist <- triggers_long %>%
+  mutate(month = gsub("Month ", "", visit), 
+         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
+  arrange(subject, month) %>%   # ensure correct order
+  group_by(subject) %>%
+  mutate(
+    across(
+      starts_with("hard_"),
+      ~ (. == "Yes" &
+         dplyr::lag(. , 1) == "Yes" &
+         dplyr::lag(. , 2) == "Yes"),
+      .names = "{.col}_3inrow"
+    )
+  ) %>%
+  ungroup() %>% 
+  # replace missing with false
+  mutate(across(ends_with("3inrow"), ~replace_na(.x, FALSE))) |> 
+  # flag for whether persistent hard trigger was after opt out feature approval
+  mutate(empro_time = as.POSIXct(EMPRO_questionnaire_completion_date,
+                                 format = "%d-%b-%Y %H:%M:%S",
+                                 tz = "UTC"),
+         opt_out_available = case_when(
+           site=="Guys St. Thomas NHS Foundation Trust" & empro_time>=as.Date("2024-09-11") ~ 1,
+           site=="University Hospital Southampton NHS Foundation Trust" & empro_time>=as.Date("2024-09-19") ~ 1,
+           TRUE & empro_time>=as.Date("2024-07-10") ~ 1,
+           TRUE ~ 0
+         )) 
+
+persist %>% 
+  select(ends_with("_3inrow")) %>% 
+  select(-hard_trigger_domains_3inrow, -hard_trigger_3inrow) %>% 
+  set_variable_labels(
+    hard_anxious_3inrow = "Anxious",
+    hard_discouraged_3inrow = "Discouraged",
+    hard_fatigue_3inrow = "Fatigue",
+    hard_general_pain_3inrow = "General pain",
+    hard_insomnia_3inrow = "Insomnia",
+    hard_joint_pain_3inrow = "Joint pain",
+    hard_sad_3inrow = "Sadness",
+    hard_social_isolation_3inrow = "Socialization"
+  ) |> 
+  tbl_summary(missing = "no") |> 
+  modify_caption("Frequency of persistent hard triggers across surveys")
+
+# persist %>% 
+#   filter(opt_out_available==1) %>% 
+#   select(ends_with("_3inrow")) %>% 
+#   select(-hard_trigger_domains_3inrow, -hard_trigger_3inrow) %>% 
+#   set_variable_labels(
+#     hard_anxious_3inrow = "Anxious",
+#     hard_discouraged_3inrow = "Discouraged",
+#     hard_fatigue_3inrow = "Fatigue",
+#     hard_general_pain_3inrow = "General pain",
+#     hard_insomnia_3inrow = "Insomnia",
+#     hard_joint_pain_3inrow = "Joint pain",
+#     hard_sad_3inrow = "Sadness",
+#     hard_social_isolation_3inrow = "Socialization"
+#   ) |> 
+#   tbl_summary(missing = "no") |> 
+#   modify_caption("Frequency of persistent hard triggers that happened after the opt out feature was added")
+```
+
+There were `r n_persistent_triggers` instances where `r n_persistent_people` unique participants opted out of persistent hard triggers. This included `r n_persistent_general_pain` general pain, `r n_persistent_joint_pain` joint pain, `r n_persistent_fatigue` fatigue, `r n_persistent_insomnia` insomnia, and `r n_persistent_social_isolation` socialization.
 
 ## By disease state
 
@@ -2306,6 +2661,157 @@ triggers_long %>%
 
 ```
 
+```{r, fig.height=7, fig.width=12}
+## juicy fruit 
+
+triggers_domain_soft_mhspc <- triggers_long %>%
+  left_join(analysis_data %>% select(subject, cohort_empro), by="subject") %>% 
+  filter(cohort_empro=="mHSPC") |> 
+  group_by(visit) %>% 
+  mutate(n_visit = n()) %>% 
+  pivot_longer(
+    cols = c(
+      soft_anxious,
+      soft_discouraged,
+      soft_fatigue,
+      soft_general_pain,
+      soft_insomnia,
+      soft_joint_pain,
+      soft_sad,
+      soft_social_isolation
+    ),
+    names_to = "domain",
+    values_to = "trigger"
+  ) %>%
+  mutate(
+    domain = factor(
+      domain,
+      levels = c(
+        "soft_anxious",
+        "soft_sad",
+        "soft_discouraged",
+        "soft_social_isolation",
+        "soft_fatigue",
+        "soft_insomnia",
+        "soft_general_pain",
+        "soft_joint_pain"),
+      labels = c("Anxious", "Sad", "Discouraged", "Socialization", "Fatigue", "Insomnia", "General pain", "Joint pain"))) %>% 
+  group_by(visit, domain, n_visit) %>% 
+  reframe(n_triggered = sum(trigger=="Yes", na.rm=TRUE),
+            prop_triggered = n_triggered/n_visit) %>% 
+  distinct() %>% 
+  mutate(month = gsub("Month ", "", visit), 
+         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
+  group_by(domain) %>%
+  mutate(domain_mean = mean(prop_triggered, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(domain = forcats::fct_reorder(domain, domain_mean))
+
+triggers_domain_soft_crpc <- triggers_long %>%
+  left_join(analysis_data %>% select(subject, cohort_empro), by="subject") %>% 
+  filter(cohort_empro=="CRPC") |> 
+  group_by(visit) %>% 
+  mutate(n_visit = n()) %>% 
+  pivot_longer(
+    cols = c(
+      soft_anxious,
+      soft_discouraged,
+      soft_fatigue,
+      soft_general_pain,
+      soft_insomnia,
+      soft_joint_pain,
+      soft_sad,
+      soft_social_isolation
+    ),
+    names_to = "domain",
+    values_to = "trigger"
+  ) %>%
+  mutate(
+    domain = factor(
+      domain,
+      levels = c(
+        "soft_anxious",
+        "soft_sad",
+        "soft_discouraged",
+        "soft_social_isolation",
+        "soft_fatigue",
+        "soft_insomnia",
+        "soft_general_pain",
+        "soft_joint_pain"),
+      labels = c("Anxious", "Sad", "Discouraged", "Socialization", "Fatigue", "Insomnia", "General pain", "Joint pain"))) %>% 
+  group_by(visit, domain, n_visit) %>% 
+  reframe(n_triggered = sum(trigger=="Yes", na.rm=TRUE),
+            prop_triggered = n_triggered/n_visit) %>% 
+  distinct() %>% 
+  mutate(month = gsub("Month ", "", visit), 
+         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
+  group_by(domain) %>%
+  mutate(domain_mean = mean(prop_triggered, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(domain = forcats::fct_reorder(domain, domain_mean))
+
+
+all_triggers_long_soft <- triggers_domain_soft_mhspc %>% 
+  mutate(state = "mHSPC") %>% 
+  bind_rows(triggers_domain_soft_crpc %>% mutate(state = "CRPC")) %>% 
+  mutate(state = factor(state, levels = c("mHSPC", "CRPC")))
+  
+ggplot(all_triggers_long_soft,
+       aes(x = month, y = prop_triggered, color = domain, group = domain, fill=domain)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 2) +
+  geom_area(alpha = 0.25, color = NA, position = "identity") +
+  scale_color_manual(
+    values = c(
+      "Discouraged" = "#a1d99b",
+      "Socialization"  = "#74c476",
+      "Sad"      = "#238b45",
+      "Anxious"    = "#005a32",
+      "Insomnia" = "#9e9ac8",
+      "Fatigue" = "#6a51a3",
+      "General pain" = "#fd8d3c",
+      "Joint pain" = "#fc4e2a"
+    )
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Discouraged"     = "#a1d99b",
+      "Socialization"= "#74c476",
+      "Sad"             = "#238b45",
+      "Anxious"         = "#005a32",
+      "Insomnia"        = "#9e9ac8",
+      "Fatigue"         = "#6a51a3",
+      "General pain"    = "#fd8d3c",
+      "Joint pain"      = "#fc4e2a"
+    )
+  ) +
+  scale_y_continuous(
+    limits = c(0, 0.60),
+    labels = scales::percent
+  ) +
+  scale_x_discrete(breaks = seq(2, 12, 2)) +
+  labs(
+    x = "Month",
+    y = "Proportion Triggered",
+    color = NULL,
+    title = "Proportion of Soft Triggers Across Each Domain Over Time by Disease State"
+  ) +
+  guides(fill = guide_legend(ncol =4)) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    legend.position = "none",
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 12),
+    strip.text = element_text(size = 14)
+  ) +
+  facet_grid(state ~ domain)
+
+```
+
 ### Hard triggers domains
 
 ```{r}
@@ -2466,6 +2972,157 @@ triggers_long %>%
 
 ```
 
+```{r, fig.height=7, fig.width=12}
+## juicy fruit 
+
+triggers_domain_hard_mhspc <- triggers_long %>%
+  left_join(analysis_data %>% select(subject, cohort_empro), by="subject") %>% 
+  filter(cohort_empro=="mHSPC") |> 
+  group_by(visit) %>% 
+  mutate(n_visit = n()) %>% 
+  pivot_longer(
+    cols = c(
+      hard_anxious,
+      hard_discouraged,
+      hard_fatigue,
+      hard_general_pain,
+      hard_insomnia,
+      hard_joint_pain,
+      hard_sad,
+      hard_social_isolation
+    ),
+    names_to = "domain",
+    values_to = "trigger"
+  ) %>%
+  mutate(
+    domain = factor(
+      domain,
+      levels = c(
+        "hard_anxious",
+        "hard_sad",
+        "hard_discouraged",
+        "hard_social_isolation",
+        "hard_fatigue",
+        "hard_insomnia",
+        "hard_general_pain",
+        "hard_joint_pain"),
+      labels = c("Anxious", "Sad", "Discouraged", "Socialization", "Fatigue", "Insomnia", "General pain", "Joint pain"))) %>% 
+  group_by(visit, domain, n_visit) %>% 
+  reframe(n_triggered = sum(trigger=="Yes", na.rm=TRUE),
+            prop_triggered = n_triggered/n_visit) %>% 
+  distinct() %>% 
+  mutate(month = gsub("Month ", "", visit), 
+         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
+  group_by(domain) %>%
+  mutate(domain_mean = mean(prop_triggered, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(domain = forcats::fct_reorder(domain, domain_mean))
+
+triggers_domain_hard_crpc <- triggers_long %>%
+  left_join(analysis_data %>% select(subject, cohort_empro), by="subject") %>% 
+  filter(cohort_empro=="CRPC") |> 
+  group_by(visit) %>% 
+  mutate(n_visit = n()) %>% 
+  pivot_longer(
+    cols = c(
+      hard_anxious,
+      hard_discouraged,
+      hard_fatigue,
+      hard_general_pain,
+      hard_insomnia,
+      hard_joint_pain,
+      hard_sad,
+      hard_social_isolation
+    ),
+    names_to = "domain",
+    values_to = "trigger"
+  ) %>%
+  mutate(
+    domain = factor(
+      domain,
+      levels = c(
+        "hard_anxious",
+        "hard_sad",
+        "hard_discouraged",
+        "hard_social_isolation",
+        "hard_fatigue",
+        "hard_insomnia",
+        "hard_general_pain",
+        "hard_joint_pain"),
+      labels = c("Anxious", "Sad", "Discouraged", "Socialization", "Fatigue", "Insomnia", "General pain", "Joint pain"))) %>% 
+  group_by(visit, domain, n_visit) %>% 
+  reframe(n_triggered = sum(trigger=="Yes", na.rm=TRUE),
+            prop_triggered = n_triggered/n_visit) %>% 
+  distinct() %>% 
+  mutate(month = gsub("Month ", "", visit), 
+         month = factor(month, levels = 1:12, labels = paste0(1:12))) %>% 
+  group_by(domain) %>%
+  mutate(domain_mean = mean(prop_triggered, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(domain = forcats::fct_reorder(domain, domain_mean))
+
+
+all_triggers_long_hard <- triggers_domain_hard_mhspc %>% 
+  mutate(state = "mHSPC") %>% 
+  bind_rows(triggers_domain_hard_crpc %>% mutate(state = "CRPC")) %>% 
+  mutate(state = factor(state, levels = c("mHSPC", "CRPC")))
+  
+ggplot(all_triggers_long_hard,
+       aes(x = month, y = prop_triggered, color = domain, group = domain, fill=domain)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 2) +
+  geom_area(alpha = 0.25, color = NA, position = "identity") +
+  scale_color_manual(
+    values = c(
+      "Discouraged" = "#a1d99b",
+      "Socialization"  = "#74c476",
+      "Sad"      = "#238b45",
+      "Anxious"    = "#005a32",
+      "Insomnia" = "#9e9ac8",
+      "Fatigue" = "#6a51a3",
+      "General pain" = "#fd8d3c",
+      "Joint pain" = "#fc4e2a"
+    )
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Discouraged"     = "#a1d99b",
+      "Socialization"= "#74c476",
+      "Sad"             = "#238b45",
+      "Anxious"         = "#005a32",
+      "Insomnia"        = "#9e9ac8",
+      "Fatigue"         = "#6a51a3",
+      "General pain"    = "#fd8d3c",
+      "Joint pain"      = "#fc4e2a"
+    )
+  ) +
+  scale_y_continuous(
+    limits = c(0, 0.60),
+    labels = scales::percent
+  ) +
+  scale_x_discrete(breaks = seq(2, 12, 2)) +
+  labs(
+    x = "Month",
+    y = "Proportion Triggered",
+    color = NULL,
+    title = "Proportion of Hard Triggers Across Each Domain Over Time by Disease State"
+  ) +
+  guides(fill = guide_legend(ncol =4)) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
+    legend.position = "none",
+    axis.title.x = element_text(face = "bold", size = 16),
+    axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text.y = element_text(size = 12),
+    strip.text = element_text(size = 14)
+  ) +
+  facet_grid(state ~ domain)
+
+```
+
 # True NTH Technical Bug
 
 ```{r, fig.width = 10, fig.height = 6}
@@ -2590,8 +3247,8 @@ triggers_long %>%
 
 ```
 
-## Self-management useage after bug email
-```{r}
+<!-- ## Self-management useage after bug email -->
+```{r, eval = FALSE}
 
 email_data <- triggers_long %>% 
   # flag whether questionnaire was after apology email was sent
