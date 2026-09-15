@@ -3489,3 +3489,51 @@ analysis_data %>%
   tbl_summary(by=yn_eortc_6, percent = "row")
 
 ```
+
+
+```{r, eval = FALSE}
+# numbers for abstract
+
+# number of triggers by disease state 
+analysis_data %>%
+  filter(arm_c=="Intervention") |> 
+  select(cohort_empro, any_trigger) |> 
+  tbl_summary(by=cohort_empro) |> add_p()
+
+# number of trigger domain by disease state
+triggers_long %>% 
+  left_join(analysis_data %>% select(subject, cohort_empro), by="subject") |> 
+  group_by(subject, cohort_empro) |> 
+  summarize(hard_anxious = sum(hard_anxious=="Yes"),
+            hard_discouraged = sum(hard_discouraged=="Yes"),
+            hard_fatigue = sum(hard_fatigue=="Yes"),
+            hard_general_pain = sum(hard_general_pain=="Yes"),
+            hard_insomnia = sum(hard_insomnia=="Yes"),
+            hard_joint_pain = sum(hard_joint_pain=="Yes"),
+            hard_sad = sum(hard_sad=="Yes"),
+            hard_social_isolation = sum(hard_social_isolation=="Yes"),
+            .groups = "drop_last") |> 
+  mutate(hard_anxious = ifelse(hard_anxious>0, 1, 0),
+            hard_discouraged = ifelse(hard_discouraged>0, 1, 0),
+            hard_fatigue = ifelse(hard_fatigue>0, 1, 0),
+            hard_general_pain = ifelse(hard_general_pain>0, 1, 0),
+            hard_insomnia = ifelse(hard_insomnia>0, 1, 0),
+            hard_joint_pain = ifelse(hard_joint_pain>0, 1, 0),
+            hard_sad = ifelse(hard_sad>0, 1, 0),
+            hard_social_isolation = ifelse(hard_social_isolation>0, 1, 0)) |> 
+  group_by(cohort_empro) |> 
+  summarize(hard_anxious = sum(hard_anxious),
+            hard_discouraged = sum(hard_discouraged),
+            hard_fatigue = sum(hard_fatigue),
+            hard_general_pain = sum(hard_general_pain),
+            hard_insomnia = sum(hard_insomnia),
+            hard_joint_pain = sum(hard_joint_pain),
+            hard_sad = sum(hard_sad),
+            hard_social_isolation = sum(hard_social_isolation),
+            .groups = "drop_last") |> 
+  mutate(n = ifelse(cohort_empro=="CRPC", 51, 128)) |> 
+  mutate(across(starts_with("hard"), ~ .x/n*100))
+  
+
+```
+
