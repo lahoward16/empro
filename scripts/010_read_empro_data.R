@@ -349,7 +349,9 @@ formatted$triggers <- qre_timeline %>%
          n_hard_trigger = ifelse(is.na(hard_trigger_domains), NA, str_count(hard_trigger_domains, ",") + 1),
          pain_soft_trigger = ifelse(grepl("pain", soft_trigger_domains), 1, 0),
          pain_hard_trigger = ifelse(grepl("pain", hard_trigger_domains), 1, 0),
-         clinician_contact = ifelse(clinician_status=="Completed", 1, 0),
+         clinician_contact = case_when(clinician_status=="Completed" ~ 1,
+                                       hard_trigger==1 ~ 0,
+                                       TRUE ~ NA),
          visit = as.numeric(gsub("Month ", "", visit)),
          hard_triggers_contact = ifelse(clinician_status=="Completed", 1, NA),
          self_mgmt_soft = case_when(
@@ -375,12 +377,22 @@ formatted$triggers <- qre_timeline %>%
          n_total_hard_trigger = select(., starts_with("n_hard_trigger_")) %>% rowSums(na.rm=TRUE),
          n_clinician_contact = select(., starts_with("clinician_contact")) %>% rowSums(na.rm=TRUE),
          pain_hard_trigger = ifelse(select(., starts_with("pain_hard_trigger")) %>% rowSums(na.rm=TRUE) > 0, 1, 0),
-         clinician_contact = ifelse(select(., starts_with("clinician_contact")) %>% rowSums(na.rm=TRUE) > 0, 1, 0),
+         clinician_contact = case_when(
+           n_total_hard_trigger==0 ~ NA,
+           select(., starts_with("clinician_contact")) %>% rowSums(na.rm=TRUE) > 0 ~ 1, 
+           select(., starts_with("clinician_contact")) %>% rowSums(na.rm=TRUE)==0 ~ 0),
          any_hard_trigger = ifelse(n_total_hard_trigger>0, 1, 0),
          any_soft_trigger = ifelse(n_total_soft_trigger>0, 1, 0),
          any_trigger = ifelse(n_total_hard_trigger+n_total_soft_trigger>0, 1, 0),
-         self_mgmt_soft = ifelse(select(., starts_with("self_mgmt_soft")) %>% rowSums(na.rm=TRUE) > 0, 1, 0),
-         self_mgmt_hard = ifelse(select(., starts_with("self_mgmt_hard")) %>% rowSums(na.rm=TRUE) > 0, 1, 0))
+         self_mgmt_soft = case_when(
+           n_total_soft_trigger==0 ~ NA,
+           select(., starts_with("self_mgmt_soft")) %>% rowSums(na.rm=TRUE) > 0 ~ 1,
+           select(., starts_with("self_mgmt_soft")) %>% rowSums(na.rm=TRUE) == 0 ~ 0),
+         self_mgmt_hard = case_when(
+           n_total_hard_trigger==0 ~ NA,
+           select(., starts_with("self_mgmt_hard")) %>% rowSums(na.rm=TRUE) > 0 ~ 1, 
+           select(., starts_with("self_mgmt_hard")) %>% rowSums(na.rm=TRUE) == 0 ~ 0, 
+           TRUE ~ NA))
 
 # number of hard trigger domains throughout the study
 formatted$triggers_numhard <- qre_timeline %>%
