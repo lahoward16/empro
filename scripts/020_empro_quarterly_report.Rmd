@@ -32,18 +32,20 @@ library(kableExtra)
 library(ggpubr)
 library(haven)
 library(labelled)
+# devtools::install_github("haleyjeppson/ggmosaic")
 library(ggmosaic)
 library(gt)
 library(dplyr)
 library(gtsummary)
 library(flextable)
+# devtools::install_github("tgerke/ggconsort")
 library(ggconsort)
 
 ```
 
 ```{r readdata, echo = F, include = F}
 # load data set
-empro <- here::here("data", "EMPRO_data_20260831.RData")
+empro <- here::here("data", "EMPRO_data_20261008.RData")
 load(empro)
 
 #make enrollment month factor 

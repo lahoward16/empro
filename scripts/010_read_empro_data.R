@@ -11,13 +11,14 @@ library(dplyr)
 library(labelled)
 library(stringr)
 library(DescTools)
+# devtools::install_github("RTIInternational/rollmatch")
 library(rollmatch)
 library(purrr)
 library(readxl)
 
 # date
-date1="2026-05-01"
-date2="2026-05-01"
+date1="2026-09-22"
+date2="2026-09-18"
 
 # load ironman package
 # devtools::install_github("tgerke/ironer", auth_token="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")
@@ -42,9 +43,9 @@ formatted = list()
 ###############################
 
 ## Load Medidata
-load(paste0("V:/EMPRO/", date1, "_EMPRO/", date1, "_EMPRO/", date2, "_empro.RData"))
+load(paste0("//duhs-comp-pri/dusom_dci/All_Staff/Projects/IRONMAN data share/EMPRO/", date1, "_EMPRO/", date1, "_EMPRO/", date2, "_empro.RData"))
 
-trigreport <- read_xlsx("V:/EMPRO/EMPRO-2024-07-trigger-bug-analysis.xlsx") %>% 
+trigreport <- read_xlsx("//duhs-comp-pri/dusom_dci/All_Staff/Projects/IRONMAN data share/EMPRO/EMPRO-2024-07-trigger-bug-analysis.xlsx") %>% 
   rename(user_id = "Tnth\nID",
          visit = "Visit\nMonth",
          empro_completed = "EMPRO\nrecorded",
@@ -599,7 +600,9 @@ matchdata = all_data %>%
     country=="Canada" ~ 2,
     country=="England" ~ 3,
     country=="USA" ~ 4)) %>% 
-  select(-month)
+  select(-month) |> 
+  # limit to visits with enrollment prior to 2026 to ensure follow-up
+  filter(enrollment_year<2026)
   
 
 # # 8/7/25 - no longer needed
@@ -773,6 +776,7 @@ not_matched <- ptlist[ptlist %notin% matches$arm_subject]; not_matched
 # August 2025 (new data): all matched
 # November 2025: all matched
 # March 2026: all matched
+# October 2026: all matched
 
 # select necessary variables to merge into big dataset
 controls <- matches %>% select(subject = control_subject, 
