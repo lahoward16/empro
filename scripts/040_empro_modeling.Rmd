@@ -15,75 +15,701 @@ knitr::opts_chunk$set(eval = TRUE, echo = FALSE, warning = FALSE, message = FALS
                       fig.width = 12, fig.height = 8, fig.align = 'center')
 ```
 
-```{r, echo=FALSE}
-library(tidyverse)
-library(lubridate)
+```{r libraries, echo=FALSE}
+# Data handling and utilities
+library(tidyverse)   # also attaches dplyr, ggplot2, tidyr, forcats, purrr, lubridate
 library(here)
-library(gtsummary)
-library(ggplot2)
-library(kableExtra)
-library(ggpubr)
-library(haven)
-library(labelled)
-library(ggmosaic)
-library(gt)
-library(dplyr)
-library(gtsummary)
-library(flextable)
-library(ggconsort)
-library(cvcrand)
-library(lme4) 
-library(lmerTest)
-library(mice)
-library(miceadds)
-library(mitools)
-library(broom.mixed)
-library(devtools)
-library(survminer)
-library(ggsurvfit)
-library(ggeasy)
-library(emmeans)
-library(mitml)
-library(pan)
+library(labelled)    # variable labels
 
+# Tables
+library(gtsummary)
+library(gt)
+
+# Models, imputation and marginal means
+library(cvcrand)     # cptest(): permutation test for cluster-randomized trials
+library(lme4)
+library(lmerTest)    # p-values for lmer (attached after lme4 so lmer() is the lmerTest version)
+library(mice)
+library(mitools)     # MIcombine(): Rubin's rules for marginal means
+library(mitml)       # pooled likelihood-ratio (D3) global tests
+library(pan)         # 2l.pan multilevel imputation method
+library(broom.mixed) # tidiers used by tbl_regression() for mixed models
+library(emmeans)
+
+# Survival plots
+library(ggsurvfit)
+
+# Loaded in the original report but not used anywhere in this document (candidates to remove):
+# library(haven); library(kableExtra); library(ggpubr); library(ggmosaic); library(flextable)
+# library(ggconsort); library(devtools); library(survminer); library(ggeasy); library(miceadds)
+```
+
+```{r config, echo=FALSE}
+# ==============================================================================
+# ANALYSIS SETTINGS -- edit this chunk to change constants and re-run analyses
+# ==============================================================================
+
+# ---- Files -------------------------------------------------------------------
+data_file              <- here::here("data", "EMPRO_data_20261008.RData")
+randscheme_path        <- "//duhsnas-pri.dhe.duke.edu/home/leh36/GU/EMPRO/Randomization/randscheme_final.csv"   # site-level covariates
+constrained_space_path <- "//duhsnas-pri.dhe.duke.edu/home/leh36/GU/EMPRO/Randomization/empro_constrained.csv"  # constrained randomization space (cptest)
+
+# ---- Analysis population and study constants ---------------------------------
+max_enrollment_month <- 45                     # exclude participants enrolled after this study month
+bug_fix_date         <- as.Date("2024-07-19")  # consent after this date = enrolled after the technical bug was fixed
+bug_visits           <- paste("Month", 1:6)    # visits in which bug exposure is counted
+eortc_months         <- c(6, 12)               # EORTC time points to transform and analyze
+
+# Site order must match the order used when randomizing (and the constrained space file)
+site_order <- c("Queensland University of Technology",
+                "Eastern Health",
+                "St. Vincent's Hospital Sydney",
+                "Macquarie University Hospital",
+                "Cross Cancer Institute",
+                "Ottawa Hospital Cancer Centre",
+                "The Royal Marsden NHS Foundation Trust",
+                "Lancashire Teaching Hospitals NHS Foundation Trust",
+                "Guys and St. Thomas NHS Foundation Trust",
+                "University Hospital Southampton NHS Foundation Trust",
+                "Duke Comprehensive Cancer Center",
+                "Memorial Sloan Kettering Cancer Center",
+                "Weill Cornell Medical Center",
+                "University of Virginia")
+
+# ---- Outcome transformation --------------------------------------------------
+eortc_max       <- 100                              # maximum possible EORTC composite score
+eortc_trans     <- function(x) sqrt(eortc_max - x)  # reflected square root (corrects left skew)
+inv_eortc_trans <- function(x) eortc_max - x^2      # back-transform to the original 0-100 scale
+trans           <- paste0("√(", eortc_max, "-x)")   # label used in text and plot titles
+
+# ---- Model specification -----------------------------------------------------
+exposure_var <- "arm_c"                                                        # treatment arm
+subject_covs <- c("age_baseline", "ecog3", "race_gp", "educ_gp", "crpc_per")   # subject-level covariates
+site_covs    <- c("site_country", "site_timetodx", "site_crpc")                # site-level covariates from the randomization scheme
+adj_terms    <- c(subject_covs, site_covs)                                     # all adjustment terms
+random_term  <- "(1 | sitenew)"                                                # random intercept for site
+
+categorical_covs <- c("ecog3", "race_gp", "educ_gp", "crpc_per", "site_country")  # factors (tells cptest which z columns are categorical)
+global_test_vars <- c("ecog3", "race_gp", "educ_gp", "site_country")              # multi-level factors shown with a global p-value
+
+# Row labels used in every regression table (only labels for variables in the model are used)
+covariate_labels <- list(
+  arm_c         = "Treatment Arm",
+  full_dose     = "Bug impact",
+  age_baseline  = "Age",
+  ecog3         = "ECOG Performance Status",
+  race_gp       = "Race",
+  educ_gp       = "Education Level",
+  crpc_per      = "Disease State",
+  site_country  = "Country",
+  site_timetodx = "Time from Diagnosis to Enrollment (Site-Level)",
+  site_crpc     = "CRPC (Site-Level)")
+
+# ---- Multiple imputation settings --------------------------------------------
+n_imp    <- 100   # number of imputed data sets
+n_iter   <- 1     # mice iterations (only the outcome is imputed)
+imp_seed <- 123   # seed for mice
+
+# ---- MNAR shift constants ----------------------------------------------------
+# Shifts are in raw EORTC points (negative = worse QoL than predicted under MAR) and are
+# named by the level of `shift_var`. Other options considered: mild = 0 / -5 / -10 and
+# upper = 0 / -10 / -20 for ECOG 0 / 1 / 2-4 (5-10 pts = small, 10-20 pts = moderate difference).
+shift_var     <- "ecog3"
+delta_large   <- c(`0` = 0, `1` = -7,   `2-4` = -12, Unknown = 0)  # large shifts applied to imputed scores
+delta_small   <- c(`0` = 0, `1` = -3.5, `2-4` = -6,   Unknown = 0)  # more conservative shifts
+p_shift_ecog  <- c(`0` = 0, `1` = 0.5, `2-4` = 0.5, Unknown = 0.5)  # 'variable' scenario: probability a participant is shifted
+sd_shift_ecog <- c(`0` = 2, `1` = 3,   `2-4` = 4,   Unknown = 3)    # optional: SD of random noise around delta (set sd_shift in a scenario)
+
+# ---- Imputation scenarios ----------------------------------------------------
+# Each scenario is passed to run_mi_scenario(). To run a new analysis, edit a scenario or add one.
+#   delta        named vector of shifts; NULL = plain MAR imputation (no post-processing)
+#   p_shift      named vector of probabilities that a participant is shifted; NULL = everyone shifted ("fixed")
+#   sd_shift     named vector of noise SDs added around delta; NULL = no noise (use p_shift OR sd_shift, not both)
+#   score_deaths TRUE = participants who died by the time point get the worst EORTC score instead of being imputed
+#   emm_method   how pooled marginal means are computed: "rubin" (per-imputation emmeans + Rubin's rules)
+#                or "mira" (emmeans applied directly to the pooled mira object)
+# make_scenario() stores the constants it is given, so each scenario keeps its own shifts.
+# (Changing delta_large / delta_small AFTER this point has no effect on scenarios already created.)
+make_scenario <- function(label, caption, delta = NULL, p_shift = NULL, sd_shift = NULL,
+                          score_deaths = !is.null(delta), emm_method = "rubin") {
+  list(label = label, caption = caption, delta = delta, p_shift = p_shift, sd_shift = sd_shift,
+       score_deaths = score_deaths, emm_method = emm_method)
+}
+
+mi_scenarios <- list(
+  mar = make_scenario(
+    label        = "MAR imputation",
+    caption      = "**Analysis of primary outcome with missing EORTC imputed under MAR assumptions**",
+    score_deaths = FALSE,
+    emm_method   = "mira"),
+  fixed_large = make_scenario(
+    label   = "MNAR imputation - large fixed shift",
+    caption = "**Analysis of primary outcome with missing EORTC imputed under MNAR assumptions (large ECOG-dependent downward shift; deaths scored 0)**",
+    delta   = delta_large),
+  fixed_small = make_scenario(
+    label   = "MNAR imputation - small fixed shift",
+    caption = "**Analysis of primary outcome with missing EORTC imputed under MNAR assumptions (small ECOG-dependent downward shift; deaths scored 0)**",
+    delta   = delta_small),
+  variable_large = make_scenario(
+    label   = "MNAR imputation - large variable shift",
+    caption = "**Analysis of primary outcome with missing EORTC imputed under MNAR assumptions (large ECOG-dependent downward shift applied with probability p; deaths scored 0)**",
+    delta   = delta_large, p_shift = p_shift_ecog),
+  variable_small = make_scenario(
+    label   = "MNAR imputation - small variable shift",
+    caption = "**Analysis of primary outcome with missing EORTC imputed under MNAR assumptions (small ECOG-dependent downward shift applied with probability p; deaths scored 0)**",
+    delta   = delta_small, p_shift = p_shift_ecog)
+)
+```
+
+```{r functions-modeling, echo=FALSE}
+# ==============================================================================
+# FUNCTIONS (modeling and imputation)
+# ==============================================================================
+
+# ---- Outcome / formula helpers -----------------------------------------------
+
+# Names of the variables that belong to one EORTC time point (month = 6, 12, ...)
+outcome_spec <- function(month) {
+  list(month = month,
+       raw   = paste0("eortc_", month),          # raw 0-100 score
+       norm  = paste0("eortc_", month, "norm"),  # transformed score (the modeled outcome)
+       dead  = paste0("dead", month))            # death indicator by this time point
+}
+
+# outcome ~ term1 + term2 + ... + (1 | sitenew)
+build_formula <- function(outcome, terms, random = random_term) {
+  reformulate(c(terms, random), response = outcome)
+}
+
+# Keep only the labels for variables that are in the model (tbl_regression errors on extras)
+labels_for <- function(model, labels = covariate_labels) {
+  labels[names(labels) %in% all.vars(formula(model))]
+}
+
+# ---- Text helpers (inline narrative always matches the shifts that were actually run) ----------
+ecog_names <- c(`0` = "ECOG 0", `1` = "ECOG 1", `2-4` = "ECOG 2–4", Unknown = "participants missing ECOG")
+
+# "no shift for ECOG 0, down by approximately 7 points for ECOG 1, ..., and ..."
+describe_shifts <- function(delta) {
+  parts <- vapply(names(delta), function(l)
+    if (delta[[l]] == 0) paste("no shift for", ecog_names[[l]])
+    else paste0("down by approximately ", abs(delta[[l]]), " points for ", ecog_names[[l]]), character(1))
+  paste0(paste(parts[-length(parts)], collapse = ", "), ", and ", parts[length(parts)])
+}
+
+# "−7 for ECOG 1, −12 for ECOG 2–4, 0 for unknown ECOG"
+shift_list <- function(delta) {
+  d <- delta[names(delta) != "0"]
+  lab <- c(`1` = "ECOG 1", `2-4` = "ECOG 2–4", Unknown = "unknown ECOG")[names(d)]
+  paste0(ifelse(d == 0, "0", paste0("−", abs(d))), " for ", lab, collapse = ", ")
+}
+
+# probabilities as text, e.g. "0.5" or "0.3–0.6"
+p_text <- function(p) paste(unique(p[p > 0]), collapse = "–")
+
+# ---- Complete case analysis --------------------------------------------------
+
+# Linear mixed model fit to complete cases (REML), via lmerTest for p-values/df
+fit_cc_model <- function(data, outcome, exposure = exposure_var,
+                         terms = adj_terms, random = random_term) {
+  f <- build_formula(outcome, c(exposure, terms), random)
+  do.call(lmerTest::lmer, list(formula = f, data = data, REML = TRUE))
+}
+
+# Residual diagnostics: residuals vs fitted, histogram, normal Q-Q
+plot_lmm_diagnostics <- function(fit) {
+  res <- resid(fit)
+  fv  <- fitted(fit)
+  plot(fv, res, xlab = "Fitted values", ylab = "Residuals")
+  abline(h = 0, lty = 2)
+  hist(res, breaks = 30, main = "Residuals", xlab = "Residual value")
+  qqnorm(res)
+  qqline(res)
+}
+
+# Permutation test (cvcrand::cptest) for the intervention effect.
+# `covs` are the covariates to adjust for; categorical ones are detected from `categorical_covs`.
+run_cptest <- function(data, outcome, covs, categorical = categorical_covs,
+                       cspace = constrained_space_path) {
+  cptest(outcome       = data[[outcome]],
+         clustername   = data$sitenew,
+         z             = data.frame(data[, covs]),
+         cspacedatname = cspace,
+         outcometype   = "continuous",
+         categorical   = intersect(categorical, covs))
+}
+
+# ---- Multiple imputation -----------------------------------------------------
+
+# Build the data set passed to mice (subject, outcome, exposure, covariates, site as integer cluster id).
+# If dead_var is given, participants who died with a missing outcome get the worst EORTC score
+# (eortc_trans(0)) and are flagged in `ignore` so mice does not use them to fit the imputation model.
+prep_impute_data <- function(data, outcome, dead_var = NULL, exposure = exposure_var) {
+  ignore <- NULL
+  if (!is.null(dead_var)) {
+    dead <- !is.na(data[[dead_var]]) & data[[dead_var]] == 1
+    data[[outcome]] <- ifelse(dead & is.na(data[[outcome]]), eortc_trans(0), data[[outcome]])
+    ignore <- dead
+  }
+  imp_data <- data %>%
+    dplyr::select(dplyr::all_of(c("subject", outcome, exposure, subject_covs, "sitenew", site_covs))) %>%
+    dplyr::mutate(sitenew = as.integer(factor(sitenew)))
+
+  # Only the outcome may have missing values
+  other_na <- colSums(is.na(imp_data[setdiff(names(imp_data), outcome)]))
+  if (any(other_na > 0))
+    stop("Missing values in imputation predictors: ",
+         paste(names(other_na)[other_na > 0], collapse = ", "))
+
+  list(data = imp_data, ignore = ignore)
+}
+
+# Text of the mice post-processing code that shifts imputed values (evaluated inside mice).
+# Imputations are made on the transformed scale, so each value is back-transformed to raw EORTC
+# points, shifted by delta (bounded to 0-eortc_max), and transformed again.
+#   delta only          -> every imputed value shifted by delta ("fixed")
+#   delta + p_shift     -> shifted with probability p_shift, otherwise left as MAR
+#   delta + sd_shift    -> shifted by delta plus Normal(0, sd_shift) noise
+make_post_code <- function(delta, p_shift = NULL, sd_shift = NULL,
+                           shift_var = "ecog3", max_score = eortc_max) {
+  stopifnot(is.numeric(delta), !is.null(names(delta)))
+  if (!is.null(p_shift) && !is.null(sd_shift)) stop("Use either p_shift or sd_shift, not both")
+  as_code <- function(x) paste(deparse(x), collapse = "")   # named vector -> R code
+
+  shift_lines <-
+    if (!is.null(p_shift)) {
+      c("shifted <- rbinom(length(lev), size = 1, prob = unname(p_shift[lev]))",
+        "d <- unname(delta[lev]) * shifted")
+    } else if (!is.null(sd_shift)) {
+      c("d <- unname(delta[lev]) + rnorm(length(lev), mean = 0, sd = unname(sd_shift[lev]))")
+    } else {
+      "d <- unname(delta[lev])"
+    }
+
+  paste(c(
+    paste("delta <-", as_code(delta)),
+    if (!is.null(p_shift))  paste("p_shift <-", as_code(p_shift)),
+    if (!is.null(sd_shift)) paste("sd_shift <-", as_code(sd_shift)),
+    # rows of the original data being imputed in this variable
+    "rows <- match(rownames(imp[[j]]), rownames(data))",
+    sprintf("lev  <- as.character(data[[%s]][rows])", deparse(shift_var)),
+    "if (anyNA(rows) || any(!lev %in% names(delta))) stop('Unmatched row or shift-variable level in post function')",
+    shift_lines,
+    sprintf("z <- pmin(pmax(imp[[j]][, i], 0), %s)", format(sqrt(max_score))),  # keep on the valid transformed scale
+    sprintf("x <- %s - z^2", format(max_score)),                                  # back-transform to raw points
+    sprintf("x_shifted <- pmin(pmax(x + d, 0), %s)", format(max_score)),          # apply shift, keep within 0-max
+    sprintf("imp[[j]][, i] <- sqrt(%s - x_shifted)", format(max_score))           # transform again
+  ), collapse = "\n")
+}
+
+# mice's 2l.pan returns one imputed value for EVERY row with ry == FALSE. When `ignore` is used (here:
+# deaths), the ignored rows have ry == FALSE too, so the returned vector is longer than the number of
+# rows being imputed and mice assigns the values to the wrong participants (it only warns "number of
+# items to replace is not a multiple of replacement length"). This wrapper keeps only the values for
+# the rows that are actually imputed (wy). Without `ignore` it gives identical results to 2l.pan.
+mice.impute.2l.pan_aligned <- function(y, ry, x, wy, type, ...) {
+  res <- mice::mice.impute.2l.pan(y = y, ry = ry, x = x, type = type, ...)
+  res[wy[!ry]]
+}
+assign("mice.impute.2l.pan_aligned", mice.impute.2l.pan_aligned, envir = globalenv())
+
+# Impute the outcome only, using the two-level normal model (2l.pan) with site as the cluster.
+# aligned = FALSE reproduces plain "2l.pan" (only relevant when `ignore` is supplied; see above).
+impute_outcome <- function(imp_data, outcome, post_code = NULL, ignore = NULL, aligned = TRUE,
+                           m = n_imp, maxit = n_iter, seed = imp_seed) {
+  meth <- make.method(imp_data)
+  meth[] <- ""                       # do not impute anything else
+  meth[outcome] <- if (aligned) "2l.pan_aligned" else "2l.pan"
+
+  pred <- make.predictorMatrix(imp_data)
+  pred[outcome, ] <- 1                                # all variables predict the outcome...
+  pred[outcome, c("subject", outcome)] <- 0           # ...except the ID and the outcome itself
+  pred[outcome, "sitenew"] <- -2                      # -2 = cluster variable for multilevel imputation
+
+  post <- make.post(imp_data)
+  if (!is.null(post_code)) post[outcome] <- post_code
+
+  mice(imp_data, m = m, maxit = maxit, seed = seed, method = meth,
+       predictorMatrix = pred, post = post, ignore = ignore, printFlag = FALSE)
+}
+
+# Check that the shift constants cover every level that will actually be imputed
+check_shift_inputs <- function(imp_data, outcome, scenario, shift_var) {
+  stopifnot(shift_var %in% names(imp_data))
+  lev_missing <- unique(as.character(imp_data[[shift_var]][is.na(imp_data[[outcome]])]))
+  for (nm in c("delta", "p_shift", "sd_shift")) {
+    v <- scenario[[nm]]
+    if (!is.null(v) && length(setdiff(lev_missing, names(v))))
+      stop(nm, " has no value for: ", paste(setdiff(lev_missing, names(v)), collapse = ", "))
+  }
+}
+
+# Run one imputation scenario end to end: impute -> fit lmer in each imputation -> global p-values.
+# `spec` comes from outcome_spec(); `scenario` is one element of mi_scenarios.
+run_mi_scenario <- function(data, spec, scenario, exposure = exposure_var, shift_by = shift_var) {
+  prep <- prep_impute_data(data, spec$norm,
+                           dead_var = if (isTRUE(scenario$score_deaths)) spec$dead,
+                           exposure = exposure)
+  post_code <- NULL
+  if (!is.null(scenario$delta)) {
+    check_shift_inputs(prep$data, spec$norm, scenario, shift_by)
+    post_code <- make_post_code(scenario$delta, scenario$p_shift, scenario$sd_shift, shift_by)
+  }
+  imp <- impute_outcome(prep$data, spec$norm, post_code = post_code, ignore = prep$ignore)
+  list(imp      = imp,
+       fit      = fit_mi_models(imp, spec$norm, exposure),
+       global_p = pooled_global_pvals(imp, spec$norm, exposure),
+       spec     = spec,
+       exposure = exposure,
+       scenario = scenario)
+}
+
+# Fit the adjusted mixed model (ML) in every imputed data set; returns a mira object
+fit_mi_models <- function(imp, outcome, exposure = exposure_var,
+                          terms = adj_terms, random = random_term) {
+  fml <- deparse1(build_formula(outcome, c(exposure, terms), random))
+  with(imp, lmerTest::lmer(as.formula(fml), REML = FALSE))
+}
+
+# Global (omnibus) p-value for each variable in global_vars: pooled likelihood-ratio test (D3,
+# Meng & Rubin 1992) comparing the full model with a model that omits the variable.
+pooled_global_pvals <- function(imp, outcome, exposure = exposure_var, terms = adj_terms,
+                                global_vars = global_test_vars, random = random_term) {
+  imp_list  <- mitml::mids2mitml.list(imp)          # plain list of completed data sets
+  all_terms <- c(exposure, terms)
+
+  fit_models <- function(trm) {
+    f    <- build_formula(outcome, trm, random)
+    fits <- lapply(imp_list, function(d)
+      do.call(lmerTest::lmer, list(formula = f, data = d, REML = FALSE)))
+    class(fits) <- c("mitml.result", "list")
+    fits
+  }
+
+  full <- fit_models(all_terms)
+  dplyr::bind_rows(lapply(global_vars, function(v) {
+    reduced <- fit_models(setdiff(all_terms, v))
+    tt      <- mitml::testModels(full, reduced, method = "D3")
+    tibble::tibble(variable = v, row_type = "label", p.value = tt$test[, "P(>F)"])
+  }))
+}
+
+# ---- Estimated marginal means ------------------------------------------------
+
+# Pooled estimated marginal means (transformed scale) across imputations
+#   "rubin": emmeans in each imputation, combined with Rubin's rules (mitools::MIcombine)
+#   "mira" : emmeans applied directly to the pooled mira object
+pooled_emm <- function(fit_mira, spec = exposure_var, method = c("rubin", "mira"), alpha = 0.05) {
+  method <- match.arg(method)
+  specs  <- reformulate(spec)
+  if (method == "mira") return(as.data.frame(emmeans::emmeans(fit_mira, specs)))
+
+  emm_list <- lapply(fit_mira$analyses, emmeans::emmeans, specs = specs, lmer.df = "asymptotic")
+  mi    <- mitools::MIcombine(lapply(emm_list, function(x) summary(x)$emmean),         # estimates
+                              lapply(emm_list, function(x) as.matrix(vcov(x))))         # variances
+  est   <- as.numeric(mi$coefficients)
+  se    <- sqrt(diag(mi$variance))
+  tcrit <- qt(1 - alpha / 2, df = mi$df)
+
+  out <- data.frame(summary(emm_list[[1]])[[spec]], est, se, est - tcrit * se, est + tcrit * se)
+  names(out) <- c(spec, "emmean", "SE", "lower.CL", "upper.CL")
+  out
+}
+
+# Back-transform marginal means and CIs to the raw EORTC scale (rounded to 1 decimal).
+# The transformation is decreasing, so the CI limits swap; pmin/pmax puts them back in order.
+backtransform_emm <- function(emm_df, group_var) {
+  emm_df %>%
+    dplyr::mutate(mean_orig  = inv_eortc_trans(emmean),
+                  a          = inv_eortc_trans(lower.CL),
+                  b          = inv_eortc_trans(upper.CL),
+                  lower_orig = pmin(a, b),
+                  upper_orig = pmax(a, b)) %>%
+    dplyr::select(dplyr::all_of(group_var), mean_orig, lower_orig, upper_orig) %>%
+    dplyr::mutate(dplyr::across(c(mean_orig, lower_orig, upper_orig), ~ round(.x, 1)))
+}
+```
+
+```{r functions-plots, echo=FALSE}
+# ==============================================================================
+# FUNCTIONS (plots)
+# ==============================================================================
+
+# Common plot theme (bold, centered titles; larger axis text). Optional facet-label size and bottom legend.
+theme_empro <- function(strip_size = NULL, legend_bottom = FALSE) {
+  th <- theme_bw() +
+    theme(plot.title   = element_text(size = 18, hjust = 0.5, face = "bold"),
+          axis.title.x = element_text(vjust = 0.5, face = "bold", size = 16),
+          axis.text.x  = element_text(size = 14),
+          axis.title.y = element_text(angle = 90, vjust = 0.70, face = "bold", size = 18),
+          axis.text.y  = element_text(size = 14))
+  if (!is.null(strip_size)) th <- th + theme(strip.text = element_text(size = strip_size))
+  if (legend_bottom)        th <- th + theme(legend.text = element_text(size = 14),
+                                             legend.title = element_text(size = 14),
+                                             legend.position = "bottom")
+  th
+}
+
+# Histogram of one EORTC variable (optionally one panel per arm)
+plot_eortc_hist <- function(data, var, title, xlab, binwidth = NULL, facet_arm = FALSE) {
+  p <- ggplot(data, aes(x = .data[[var]])) +
+    geom_histogram(binwidth = binwidth, fill = "#a6dba0", color = "black") +
+    labs(title = title, x = xlab, y = "Frequency")
+  if (facet_arm) p <- p + facet_wrap(~ arm_c)
+  p + theme_empro(strip_size = if (facet_arm) 12)
+}
+
+# The three histograms shown for each time point: raw score, transformed score, transformed score by arm
+eortc_hist_plots <- function(data, month) {
+  o <- outcome_spec(month)
+  list(
+    raw         = plot_eortc_hist(data, o$raw,
+                                  paste0("EORTC at ", month, " Months"), "EORTC Score", binwidth = 5),
+    transformed = plot_eortc_hist(data, o$norm,
+                                  paste0("EORTC at ", month, " months ", trans), paste0("EORTC Score ", trans)),
+    by_arm      = plot_eortc_hist(data, o$norm,
+                                  paste0("EORTC Score ", trans), paste0("EORTC Score ", trans),
+                                  binwidth = 0.6, facet_arm = TRUE))
+}
+
+# Compare the distribution of observed (complete case) outcomes with the values *imputed* under each
+# scenario. `results` is a list of run_mi_scenario() results. Values are on the transformed scale.
+compare_eortc_distributions <- function(data, outcome, results) {
+  keep <- c("subject", "ecog3", outcome, "source")   # columns needed for plotting
+
+  observed <- data %>%
+    dplyr::filter(!is.na(.data[[outcome]])) %>%
+    dplyr::mutate(source = "Complete case") %>%
+    dplyr::select(dplyr::all_of(keep))
+
+  # keep only the imputed values (rows whose outcome was missing in the imputation data set)
+  imputed <- lapply(results, function(r) {
+    mice::complete(r$imp, action = "long") %>%
+      dplyr::mutate(source = r$scenario$label,
+                    was_missing = is.na(r$imp$data[[outcome]][match(subject, r$imp$data$subject)])) %>%
+      dplyr::filter(was_missing) %>%
+      dplyr::select(dplyr::all_of(keep))
+  })
+
+  all_values <- dplyr::bind_rows(c(list(observed), unname(imputed)))
+
+  overall <- ggplot(all_values, aes(x = .data[[outcome]], fill = source)) +
+    geom_density(alpha = 0.4) +
+    labs(title = "Distribution of EORTC scores",
+         subtitle = "Complete cases vs MAR and ECOG-adjusted imputations",
+         x = "EORTC score", y = "Density") +
+    theme_empro()
+
+  by_ecog <- ggplot(all_values, aes(x = .data[[outcome]], fill = source)) +
+    geom_density(alpha = 0.4) +
+    facet_wrap(~ ecog3) +
+    labs(title = "EORTC distributions by ECOG score",
+         subtitle = "Observed vs MAR vs MNAR imputations",
+         x = "EORTC score (transformed scale)", y = "Density") +
+    theme_empro() +
+    theme(plot.subtitle = element_text(size = 16, hjust = 0.5, face = "bold"))
+
+  list(overall = overall, by_ecog = by_ecog)
+}
+```
+
+```{r functions-tables, echo=FALSE}
+# ==============================================================================
+# FUNCTIONS (tables)
+# ==============================================================================
+
+# Baseline characteristics of one arm, by site
+tbl_baseline_by_site <- function(data, arm_value) {
+  data %>%
+    dplyr::filter(arm == arm_value) %>%
+    dplyr::select(site, age_baseline, race_gp, year_emp_enrollment,
+                  enrollment_month1, crpc_per, educ_gp, ecog2) %>%
+    tbl_summary(by = site,
+                missing = "ifany",
+                missing_text = "N missing",
+                type = all_continuous() ~ "continuous2",
+                statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
+                                                 "{min}, {max}")) %>%
+    bold_labels() %>%
+    modify_header(label = "") %>%
+    modify_caption(paste0("**Baseline participant characteristics in the ", arm_value, " arm by site**"))
+}
+
+# Regression table for a complete case model: term p-values for continuous/binary variables,
+# global (ANOVA) p-values for the multi-level factors in `global_vars`
+tbl_cc_regression <- function(fit, caption, labels = covariate_labels, global_vars = global_test_vars) {
+  lab <- labels_for(fit, labels)
+
+  # table with term-level p-values
+  main_tab <- tbl_regression(fit, label = lab) %>%
+    bold_labels()
+
+  # table with global p-values only
+  global_p_tab <- tbl_regression(fit, label = lab) %>%
+    add_global_p() %>%
+    bold_labels() %>%
+    modify_column_hide(estimate) %>%
+    modify_column_hide(conf.low)
+
+  tbl_merge(list(main_tab, global_p_tab)) %>%
+    modify_spanning_header(everything() ~ NA_character_) %>%
+    modify_header(p.value_1 ~ "**P-value**",
+                  p.value_2 ~ "**Global p-value**") %>%
+    # keep the term p-value for variables tested one-df, and the global p-value for the factors
+    modify_table_body(
+      ~ .x %>%
+        dplyr::mutate(
+          p.value_1 = dplyr::if_else(variable %in% global_vars, NA_real_, p.value_1),
+          p.value_2 = dplyr::if_else(variable %in% global_vars, p.value_2, NA_real_))) %>%
+    modify_footnote(p.value_2 ~ "Global p-values obtained from ANOVA") %>%
+    modify_caption(caption)
+}
+
+# Regression table for a pooled (multiply imputed) model from run_mi_scenario()
+tbl_mi_regression <- function(res, caption = res$scenario$caption,
+                              labels = covariate_labels, global_vars = global_test_vars) {
+  tbl_regression(res$fit, label = labels_for(res$fit$analyses[[1]], labels)) %>%
+    # term p-values kept for non-global variables; pooled global p-values joined in for the factors
+    modify_table_body(
+      ~ .x %>%
+        dplyr::rename(original.p = p.value) %>%
+        dplyr::mutate(original.p = scales::pvalue(original.p)) %>%
+        dplyr::left_join(res$global_p, by = c("variable", "row_type")) %>%
+        dplyr::mutate(
+          original.p = dplyr::if_else(variable %in% global_vars, NA_character_, original.p),
+          p.value    = dplyr::if_else(variable %in% global_vars, p.value, NA_real_))) %>%
+    modify_column_unhide(columns = c(original.p, p.value)) %>%
+    modify_header(original.p ~ "**P-value**",
+                  p.value ~ "**Global p-value**") %>%
+    bold_labels() %>%
+    modify_footnote(
+      all_stat_cols() ~ "Estimates pooled across multiple imputations using Rubin\u2019s rules.") %>%
+    modify_footnote(
+      p.value ~ "Global p-values are calculated from a pooled likelihood-ratio test (D3; Meng & Rubin, 1992) comparing the full mixed model with a model omitting that variable, with other covariates and a random site intercept retained.") %>%
+    modify_caption(caption)
+}
+
+# gt table of back-transformed marginal means
+gt_emm_table <- function(emm_df, group_var = exposure_var, group_label = "Treatment Arm",
+                         title = "Adjusted estimate (back-transformed) by treatment arm",
+                         subtitle = NULL, note = NULL) {
+  tab <- gt(emm_df) %>%
+    tab_header(title = title, subtitle = subtitle) %>%
+    cols_label(.list = c(setNames(list(group_label), group_var),
+                         list(mean_orig  = "Adjusted Mean",
+                              lower_orig = "Lower 95% CI",
+                              upper_orig = "Upper 95% CI")))
+  if (!is.null(note)) tab <- tab %>% tab_source_note(source_note = note)
+  tab
+}
+
+# Back-transformed marginal means for a complete case model
+emm_table_cc <- function(fit, exposure = exposure_var, ...) {
+  emm <- as.data.frame(emmeans::emmeans(fit, reformulate(exposure)))
+  gt_emm_table(backtransform_emm(emm, exposure), exposure, ...)
+}
+
+# Back-transformed pooled marginal means for a run_mi_scenario() result
+emm_table_mi <- function(res, method = res$scenario$emm_method, ...) {
+  emm <- pooled_emm(res$fit, res$exposure, method = method)
+  gt_emm_table(backtransform_emm(emm, res$exposure), res$exposure, ...)
+}
+
+# Back-transformed marginal means from several analyses stacked in one data frame (one block per method).
+# `cc_fit` is a complete case lmer fit; `mi_results` is a list of run_mi_scenario() results.
+# Each analysis is its own block even if two scenarios share the same label.
+# `method_labels` (optional) sets the group headers:
+#   - an unnamed vector, one label per analysis in table order (complete case first), or
+#   - a named vector that renames every block whose default label matches, e.g. c("MAR imputation" = "MAR")
+emm_combined_df <- function(cc_fit, mi_results, exposure = exposure_var, method_labels = NULL) {
+  cc <- as.data.frame(emmeans::emmeans(cc_fit, reformulate(exposure))) %>%
+    backtransform_emm(exposure) %>%
+    dplyr::mutate(method = "Complete case")
+
+  mi <- lapply(mi_results, function(r) {
+    pooled_emm(r$fit, r$exposure, method = r$scenario$emm_method) %>%
+      backtransform_emm(r$exposure) %>%
+      dplyr::mutate(method = r$scenario$label)
+  })
+
+  blocks  <- c(list(cc), unname(mi))
+  labels  <- vapply(blocks, function(x) x$method[1], character(1))   # default header of each block
+
+  if (!is.null(method_labels)) {
+    if (is.null(names(method_labels))) {
+      if (length(method_labels) != length(blocks))
+        stop("method_labels has ", length(method_labels), " labels but the table has ", length(blocks),
+             " analyses (complete case + ", length(mi), " imputation results)")
+      labels <- unname(method_labels)
+    } else {
+      unknown <- setdiff(names(method_labels), labels)
+      if (length(unknown))
+        stop("method_labels names not found: ", paste(unknown, collapse = ", "),
+             ". Default labels are: ", paste(unique(labels), collapse = ", "))
+      hit <- labels %in% names(method_labels)
+      labels[hit] <- unname(method_labels[labels[hit]])
+    }
+  }
+  if (anyDuplicated(labels))
+    stop("Two analyses have the same header (", paste(unique(labels[duplicated(labels)]), collapse = ", "),
+         "). Give each a distinct label with method_labels, in table order.")
+
+  blocks <- Map(function(x, l) dplyr::mutate(x, method = l), blocks, labels)
+  dplyr::bind_rows(blocks) %>%
+    dplyr::mutate(method = factor(method, levels = labels),
+                  dplyr::across(dplyr::all_of(exposure), as.character)) %>%
+    dplyr::select(method, dplyr::everything())
+}
+
+# One gt table of back-transformed marginal means for every analysis, grouped by method
+emm_table_combined <- function(cc_fit, mi_results, exposure = exposure_var, method_labels = NULL,
+                               group_label = "Treatment Arm",
+                               title = "Adjusted estimates (back-transformed) by treatment arm and analysis method",
+                               subtitle = NULL, note = NULL) {
+  tab <- emm_combined_df(cc_fit, mi_results, exposure, method_labels) %>%
+    gt(groupname_col = "method") %>%
+    tab_header(title = title, subtitle = subtitle) %>%
+    cols_label(.list = c(setNames(list(group_label), exposure),
+                         list(mean_orig  = "Adjusted Mean",
+                              lower_orig = "Lower 95% CI",
+                              upper_orig = "Upper 95% CI")))
+  if (!is.null(note)) tab <- tab %>% tab_source_note(source_note = note)
+  tab
+}
 
 ```
 
-
 ```{r readdata, echo = F, include = F}
-# load data set
-empro <- here::here("data", "EMPRO_data_20261008.RData")
-load(empro)
+# ==============================================================================
+# DATA PREPARATION
+# ==============================================================================
 
-#make enrollment month factor 
+# ---- Load data ---------------------------------------------------------------
+load(data_file)   # objects used below: empro_data, triggers_long, not_matched
+
+# enrollment month as a factor
 empro_data$enrollment_month1 = factor(empro_data$enrollment_month)
 
-#make new variable for yes/no CRPC
+# yes/no CRPC (anything other than mHSPC)
 empro_data$crpc_per = empro_data$cohort_empro != "mHSPC"
 
-# add variable for not matched
+# flag for participants who were not matched
 empro_data$not_matched = ifelse(empro_data$subject %in% not_matched, 1, 0)
 
-#relabel new vars
+# relabel new variables
 var_label(empro_data) <- list(
   enrollment_month1 = "Study visit at entry")
 
-# read in site-level data
-site_data <- read.csv("H:/GU/EMPRO/Randomization/randscheme_final.csv") %>% 
+# site-level data from the randomization scheme
+site_data <- read.csv(randscheme_path) %>% 
   rename(site_country = Country,
          site_timetodx = timetodx,
          site_crpc = CRPC)
 
-# reflected sqrt function
-eortc_trans <- function(x){sqrt(100 - x)}
-# inverse
-inv_eortc_trans <- function(x){100 - x^2}
-# transformation name
-trans <- "√(100-x)"
-
-# ever experienced the technical bug in first 6 mo
+# ---- Technical bug exposure --------------------------------------------------
+# Proportion of intervention questionnaires in the first 6 months completed while the bug was present
 bug_outcome <- triggers_long %>% 
-  filter(visit %in% c("Month 1", "Month 2", "Month 3", "Month 4", "Month 5", "Month 6")) %>% 
+  filter(visit %in% bug_visits) %>% 
   mutate(bug = ifelse(after_bug=="Bug present", 1, 0)) %>% 
   group_by(subject) %>% 
   summarize(n_bug = sum(bug),
@@ -96,48 +722,36 @@ bug_outcome <- triggers_long %>%
            p_bug>0 & p_bug<1 ~ 2,
            p_bug==1 ~ 3))
 
-# analysis data set (remove exclusions)
+# ---- Analysis data set (apply exclusions) ------------------------------------
 analysis_data <- empro_data %>% 
-  filter(!is.na(empro_cnstdate) & enrollment_month<=45 & !is.na(cohort_empro)) %>%
+  filter(!is.na(empro_cnstdate) & enrollment_month<=max_enrollment_month & !is.na(cohort_empro)) %>%
   mutate(enrollment_month1 = fct_drop(enrollment_month1)) %>%
+  # harmonize site names to match the randomization scheme (case_when uses the original `site` value)
   mutate(sitenew = case_when(
     site=="Cross Cancer Institute (Alberta Health Services)" ~ "Cross Cancer Institute",
     site=="Guys St. Thomas NHS Foundation Trust" ~ "Guys and St. Thomas NHS Foundation Trust",
-    site=="Royal Brisbane & Women’s Hospital" ~ "Royal Brisbane & Women's Hospital",
+    #site=="Royal Brisbane & Women’s Hospital" ~ "Royal Brisbane & Women's Hospital",
     site=="St. Vincent’s Hospital Sydney" ~ "St. Vincent's Hospital Sydney",
     site=="University of Virgina (UVA)" ~ "University of Virginia", 
     site=="Royal Brisbane & Women's Hospital" ~ "Queensland University of Technology",
     site=="NewYork-Presbyterian Brooklyn Methodist Hospital" ~ "Weill Cornell Medical Center",
     TRUE ~ site),
-    ecog3 = replace_na(ecog2, "Unknown"),
+    ecog3 = replace_na(ecog2, "Unknown"),    # ECOG with an explicit "Unknown" category
     crpc_per = factor(crpc_per, levels=c("FALSE", "TRUE"), labels = c("mHSPC", "CRPC"))) %>% 
   left_join(site_data, by = c("sitenew"="sitegp")) %>% 
-  mutate(# re-order - this matches the order from when they were randomized (must match constrained space file)
-    sitenew = factor(sitenew,
-                           levels = c("Queensland University of Technology",
-                                      "Eastern Health",
-                                      "St. Vincent's Hospital Sydney",
-                                      "Macquarie University Hospital",
-                                      "Cross Cancer Institute",
-                                      "Ottawa Hospital Cancer Centre",
-                                      "The Royal Marsden NHS Foundation Trust",
-                                      "Lancashire Teaching Hospitals NHS Foundation Trust",
-                                      "Guys and St. Thomas NHS Foundation Trust",
-                                      "University Hospital Southampton NHS Foundation Trust",
-                                      "Duke Comprehensive Cancer Center",
-                                      "Memorial Sloan Kettering Cancer Center",
-                                      "Weill Cornell Medical Center",
-                                      "University of Virginia")),
-  # transformed EORTC
-  eortc_6norm = eortc_trans(eortc_6),
-  eortc_12norm = eortc_trans(eortc_12)) |> 
-  set_variable_labels(ecog3="ECOG",
+  mutate(
+    # site order matches the randomization order (must match the constrained space file)
+    sitenew = factor(sitenew, levels = site_order),
+    # transformed EORTC at each analyzed time point (eortc_6norm, eortc_12norm, ...)
+    across(all_of(paste0("eortc_", eortc_months)), eortc_trans, .names = "{.col}norm")) |> 
+  set_variable_labels(ecog3 = "ECOG",
                       enrollment_month1 = "Study visit at entry", 
                       arm_c = "Arm",
-                      eortc_6norm = "EORTC at 6 mo (transformed)",
-                      eortc_12norm = "EORTC at 12 mo (transformed)",
                       crpc_per = "Disease state") %>% 
-  # add in bug info
+  set_variable_labels(.labels = setNames(
+    as.list(paste0("EORTC at ", eortc_months, " mo (transformed)")),
+    paste0("eortc_", eortc_months, "norm"))) %>% 
+  # add technical bug exposure
   full_join(bug_outcome, by="subject") %>% 
   mutate(bug_group = case_when(
     !is.na(bug_group) ~ bug_group,
@@ -150,36 +764,33 @@ analysis_data <- empro_data %>%
                                   "Some intervention questionnaires impacted by bug", 
                                   "All intervention questionnaires impacted by bug", 
                                   "No intervention questionnaires completed")),
+    # exposure to the bug: enrolled after the fix, or no questionnaires affected = not impacted
     full_dose = case_when(
       arm=="control" ~ 0,
-      # bug_group==1 ~ 1,
-      # bug_group %in% c(2,3) ~ 2,
-      # !is.na(full_dose) ~ full_dose,
-      empro_cnstdate > as.Date("2024-07-19") | bug_group=="No questionnaires impacted by bug" ~ 1, 
+      empro_cnstdate > bug_fix_date | bug_group=="No questionnaires impacted by bug" ~ 1, 
       TRUE ~ 2),
     full_dose = factor(full_dose, levels = 0:2, labels = c("Control", "Not impacted by bug", "Impacted by bug")))
 
-# complete data at 6 mo
-analysis_data6 <- analysis_data %>% 
-  filter(!is.na(eortc_6)) 
+# complete cases at each time point
+analysis_data6  <- analysis_data %>% filter(!is.na(eortc_6)) 
+analysis_data12 <- analysis_data %>% filter(!is.na(eortc_12)) 
 
-# complete data at 12 mo
-analysis_data12 <- analysis_data %>% 
-  filter(!is.na(eortc_12)) 
+# variable names for each time point (raw, transformed, death indicator)
+o6  <- outcome_spec(6)
+o12 <- outcome_spec(12)
 
 # patient counts
 n_crpc <- analysis_data %>% filter(cohort_empro=="CRPC" & arm=="intervention") %>% nrow()
 n_mhspc <- analysis_data %>% filter(cohort_empro=="mHSPC" & arm=="intervention") %>% nrow()
 n_intervention <- analysis_data %>% filter(arm=="intervention") %>% nrow()
-
 ```
 
 # Patient characteristics
 Baseline patient characteristics are shown by study arm and by center within each arm.
 
 ## By arm
-```{r}
-#create demographic table by invention and control (arm variable = groups)
+```{r baseline-by-arm}
+# demographic table by intervention and control (arm variable = groups)
 analysis_data %>%
   dplyr::select(arm,
          country,
@@ -211,61 +822,13 @@ analysis_data %>%
 ## By site
 
 ### Intervention arm
-```{r}
-#create demographic table of intervention arm by site
-analysis_data %>%
-  filter(arm == "intervention") %>% 
-  dplyr::select(site,
-         age_baseline,
-         race_gp,
-         year_emp_enrollment,
-         enrollment_month1,
-         crpc_per,
-         educ_gp,
-         ecog2) %>%
-  tbl_summary(by = site,
-              missing = "ifany",
-              missing_text = "N missing",
-              type = list(age_baseline ~ "continuous2"),
-              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
-                                               "{min}, {max}")) %>%
-  bold_labels() %>%
-  modify_header(label = "")  %>% 
-  modify_caption("**Baseline participant characteristics in the intervention arm by site**")
-
-# to output to .docx:
-# tbl %>%
-#   as_flex_table() %>%
-#   flextable::save_as_docx()
+```{r baseline-site-intervention}
+tbl_baseline_by_site(analysis_data, "intervention")
 ```
 
 ### Control arm
-```{r}
-#create demographic table of control arm by site
-analysis_data %>%
-  filter(arm == "control") %>% 
-  dplyr::select(site,
-         age_baseline,
-         race_gp,
-         year_emp_enrollment,
-         enrollment_month1,
-         crpc_per,
-         educ_gp,
-         ecog2) %>%
-  tbl_summary(by = site,
-              missing = "ifany",
-              missing_text = "N missing",
-              type = all_continuous() ~ "continuous2",
-              statistic = all_continuous() ~ c("{median} ({p25}, {p75})",
-                                               "{min}, {max}")) %>%
-  bold_labels() %>%
-  modify_header(label = "")  %>% 
-  modify_caption("**Baseline participant characteristics in the control arm by site**")
-
-# to output to .docx:
-# tbl %>%
-#   as_flex_table() %>%
-#   flextable::save_as_docx()
+```{r baseline-site-control}
+tbl_baseline_by_site(analysis_data, "control")
 ```
 
 # EORTC Distribution
@@ -273,8 +836,8 @@ We investigated the distribution of the primary outcome (EORTC QLQ-c30 composite
 
 ## Across visits
 This figure shows the distribution of EORTC by arm for each visit during EMPRO follow-up. 
-```{r}
-
+```{r eortc-by-visit}
+# long format: one row per participant and visit
 fig_data <- analysis_data %>%
   pivot_longer(
     cols = starts_with("eortc_"),
@@ -301,23 +864,12 @@ ggplot(fig_data, aes(x = time, y = eortc, fill = arm_c)) +
     values = c("#c2a5cf", "#a6dba0")
   ) +
   guides(fill = guide_legend(ncol =4)) +
-  theme_bw() +  
-  theme(
-    plot.title = element_text(size = 18, hjust = 0.5, face = "bold"),
-    axis.title.x = element_text(face = "bold", size = 16),
-    axis.text.x = element_text(size = 14),
-    axis.title.y = element_text(face = "bold", size = 18),
-    axis.text.y = element_text(size = 14),
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 14),
-    legend.position = "bottom"
-  )
-
+  theme_empro(legend_bottom = TRUE)
 ```
 
 ### Summary statistics
 The summary statistics for EORTC at each time point by arm are shown. It is important to note the drop off of of completed EORTC surveys over the study period.
-```{r}
+```{r eortc-summary-stats}
 analysis_data %>% 
   select(arm_c, eortc_0, eortc_3, eortc_6, eortc_9, eortc_12) %>% 
   tbl_summary(by=arm_c,
@@ -333,96 +885,28 @@ analysis_data %>%
 
 The composite score of EORTC QLQ-C30 at 6 months was transformed using a `r trans` transformation.
 
-```{r, echo=FALSE, fig.width = 8, fig.height = 6}
-
-ggplot(analysis_data, aes(x = eortc_6)) +
-  geom_histogram(binwidth = 5, fill = "#a6dba0", color = "black") +
-  labs(title = "EORTC at 6 Months", x = "EORTC Score", y = "Frequency") +
-  theme_bw()+
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14))
-
-ggplot(analysis_data, aes(x = eortc_6norm)) +
-  geom_histogram(fill = "#a6dba0", color = "black") +
-  labs(title = paste0("EORTC at 6 months ", trans), 
-       x = paste0("EORTC Score ", trans), 
-       y = "Frequency") +
-  theme_bw()+
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14),
-        strip.text = element_text(size = 14))
-
-ggplot(analysis_data, aes(x = eortc_6norm)) +
-  geom_histogram(binwidth=0.6, fill = "#a6dba0", color = "black") +
-  labs(title = paste0("EORTC Score ", trans), 
-       x = paste0("EORTC Score ", trans), 
-       y = "Frequency") +
-  theme_bw() +
-  facet_wrap(~ arm_c) +
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14),
-        strip.text = element_text(size = 12))
-
+```{r hist-6, echo=FALSE, fig.width = 8, fig.height = 6}
+hist6 <- eortc_hist_plots(analysis_data, 6)
+hist6$raw          # raw score
+hist6$transformed  # transformed score
+hist6$by_arm       # transformed score by arm
 ```
 
 ## 12 Months
 
 The composite score of EORTC QLQ-C30 at 12 months was transformed using a `r trans` transformation.
 
-```{r, echo=FALSE, fig.width = 8, fig.height = 6}
-
-ggplot(analysis_data, aes(x = eortc_12)) +
-  geom_histogram(binwidth = 5, fill = "#a6dba0", color = "black") +
-  labs(title = "EORTC at 12 Months", x = "EORTC Score", y = "Frequency") +
-  theme_bw()+
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14))
-
-ggplot(analysis_data, aes(x = eortc_12norm)) +
-  geom_histogram(fill = "#a6dba0", color = "black") +
-  labs(title = paste0("EORTC at 12 months ", trans), 
-       x = paste0("EORTC Score ", trans), 
-       y = "Frequency") +
-  theme_bw()+
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14),
-        strip.text = element_text(size = 14))
-
-ggplot(analysis_data, aes(x = eortc_12norm)) +
-  geom_histogram(binwidth=0.6, fill = "#a6dba0", color = "black") +
-  labs(title = paste0("EORTC Score ", trans), 
-       x = paste0("EORTC Score ", trans), 
-       y = "Frequency") +
-  theme_bw() +
-  facet_wrap(~ arm_c) +
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14),
-        strip.text = element_text(size = 12))
-
+```{r hist-12, echo=FALSE, fig.width = 8, fig.height = 6}
+hist12 <- eortc_hist_plots(analysis_data, 12)
+hist12$raw
+hist12$transformed
+hist12$by_arm
 ```
 
 ## Association with ECOG
 We hypothesized that participants with higher ECOG score at baseline would be less likely to complete study questionnaires. 
-```{r}
-
+```{r ecog-missingness}
+# missingness of the 6-month EORTC by baseline ECOG (row percentages)
 analysis_data %>%
   mutate(ecog3 = ifelse(is.na(ecog2), "Unknown", ecog2),
          eortc_6miss = ifelse(is.na(eortc_6norm), 0, 1),
@@ -435,16 +919,15 @@ analysis_data %>%
   add_p() %>% 
   modify_caption("**Missingness rates of 6-month EORTC questionnaire by ECOG at EMPRO baseline**")
 
+# distribution of the 6-month EORTC within each ECOG group
 analysis_data %>% 
   select(ecog3, eortc_6) %>% 
   tbl_summary(by=ecog3,
               label = list(ecog3="ECOG")) %>% 
   modify_caption("**Summary statistics of 6-month EORTC questionnaire by ECOG at EMPRO baseline**")
-
-
 ```
 
-# EORTC at 6 months
+# Outcome: EORTC at 6 months
 
 ## Permutation test
 
@@ -454,8 +937,8 @@ Intervention effect was analyzed using linear mixed models, with statistical inf
 
 Only adjusted for subject-level covariates
 
-```{r}
-# should be:
+```{r perm-6-model1}
+# Site order in the constrained space file should be (1 = intervention, 0 = control):
 #                                             clustername allocation
 # 1                   Queensland University of Technology          0
 # 2                                        Eastern Health          1
@@ -472,13 +955,7 @@ Only adjusted for subject-level covariates
 # 13                         Weill Cornell Medical Center          1
 # 14                               University of Virginia          0
 
-perm1 <- cptest(outcome = analysis_data6$eortc_6norm,
-       clustername = analysis_data6$sitenew,
-       z = data.frame(analysis_data6[ , c("age_baseline", "ecog3", "race_gp", "educ_gp", "crpc_per")]), 
-       cspacedatname = "H:/GU/EMPRO/Randomization/empro_constrained.csv",
-       outcometype = "continuous",                                                      
-       categorical = c("ecog3", "race_gp", "educ_gp", "crpc_per"))
-
+perm1 <- run_cptest(analysis_data6, o6$norm, covs = subject_covs)
 ```
 
 `r perm1$pvalue_statement`
@@ -487,16 +964,8 @@ perm1 <- cptest(outcome = analysis_data6$eortc_6norm,
 
 Adjusted for subject-level covariates and site-level covariates included in the randomization scheme (measured at the time of randomization).
 
-```{r}
-
-perm2 <- cptest(outcome = analysis_data6$eortc_6norm,
-       clustername = analysis_data6$sitenew,
-       z = data.frame(analysis_data6[ , c("age_baseline", "ecog3", "race_gp", "educ_gp", "crpc_per",
-                                          "site_country", "site_timetodx", "site_crpc")]), 
-       cspacedatname = "H:/GU/EMPRO/Randomization/empro_constrained.csv",
-       outcometype = "continuous",                                                      
-       categorical = c("ecog3", "race_gp", "educ_gp", "crpc_per", "site_country"))
-
+```{r perm-6-model2}
+perm2 <- run_cptest(analysis_data6, o6$norm, covs = adj_terms)
 ```
 
 `r perm2$pvalue_statement`
@@ -517,344 +986,37 @@ Importantly, this does not change the underlying clinical relationships—it onl
 
 ### Complete case analysis
 
-#### Model results
+```{r cc-6-model}
+# linear mixed model (singular-fit warnings: site random-effect variance can be estimated as ~0)
+fit_cc6 <- fit_cc_model(analysis_data6, o6$norm)
 
-```{r}
-# linear mixed model
-fit_adj <- lmer(eortc_6norm ~ arm_c + age_baseline + ecog3 + race_gp + educ_gp + crpc_per + 
-              site_country + site_timetodx + site_crpc +
-              (1 | sitenew), data = analysis_data6, REML = TRUE)
-# singular warning: random-effect variance for sitenew is estimated ≈ 0 in many imputations.
-
-# main table with term p-values
-main_tab <- fit_adj %>% 
-  tbl_regression(label = list(arm_c = "Arm", 
-                              ecog3 = "ECOG", 
-                              site_country = "Country", 
-                              site_timetodx = "Time from diagnosis to enrollment (site average)", 
-                              site_crpc = "Percent CRPC (site average)")) %>% 
-  bold_labels() 
-
-# table of only global p-values
-global_p_tab <- fit_adj %>% 
-  tbl_regression(label = list(arm_c = "Arm", 
-                              ecog3 = "ECOG", 
-                              site_country = "Country", 
-                              site_timetodx = "Time from diagnosis to enrollment (site average)", 
-                              site_crpc = "Percent CRPC (site average)")) %>% 
-  add_global_p() %>% 
-  bold_labels() %>% # show_header_names()
-  modify_column_hide(estimate) %>% 
-  modify_column_hide(conf.low)
-
-# merge tables
-cc_tab <- tbl_merge(list(main_tab, global_p_tab)) %>% 
-  modify_spanning_header(everything() ~ NA_character_) %>% 
-  modify_header(p.value_1 ~ "**P-value**",
-                p.value_2 ~ "**Global p-value**")
-
-
-
-# hide wrong p-value for each variable
-cc_tab |>
-  modify_table_body(
-    ~ .x |>
-      dplyr::mutate(
-        # Remove term p-values for variables that use global tests
-        p.value_1 = if_else(
-          variable %in% c("ecog3", "race_gp", "educ_gp", "site_country"),
-          NA,
-          p.value_1
-        ),
-        # Remove global p-values for variables that use term-level tests
-        p.value_2 = if_else(
-          variable %in% c("arm_c", "crpc_per", "site_timetodx", "site_crpc", "age_baseline"),
-          NA,
-          p.value_2
-        )
-      )
-  ) %>% 
-  modify_footnote(
-    p.value_2 ~
-      "Global p-values obtained from ANOVA"
-  )  %>% 
-  modify_caption("**Complete case analysis of primary outcome**")
-
-
+tbl_cc_regression(fit_cc6, caption = "**Complete case analysis of primary outcome**")
 ```
 
-#### Back-transformed estimates
-
-Estimated marginal means, back-transformed to the original EORTC scale.
-
-```{r}
-# estimated marginal means by arm
-emm_arm <- emmeans(fit_adj, ~ arm_c)
-
-# convert to data frame and back-transform
-emm_df <- as.data.frame(emm_arm) %>%
-  mutate(
-    mean_orig = inv_eortc_trans(emmean),
-    lower_orig = inv_eortc_trans(upper.CL),
-    upper_orig = inv_eortc_trans(lower.CL)
-  ) %>%
-  select(
-    arm_c,
-    mean_orig,
-    lower_orig,
-    upper_orig
-  ) %>%
-  mutate(
-    mean_orig = round(mean_orig, 1),
-    lower_orig = round(lower_orig, 1),
-    upper_orig = round(upper_orig, 1)
-  )
-
-# create table
-gt(emm_df) %>%
-  tab_header(
-    title = "Adjusted estimate (back-transformed) by treatment arm"
-  ) %>%
-  cols_label(
-    arm_c = "Treatment Arm",
-    mean_orig = "Adjusted Mean",
-    lower_orig = "Lower 95% CI",
-    upper_orig = "Upper 95% CI"
-  ) 
-
-
-```
 
 #### Model diagnostics
 
 These plots show normality of the residuals from the mixed model, which further supports the transformation of the outcome, EORTC.
 
-```{r, fig.height=6, fig.width=6}
-# residuals
-resid <- resid(fit_adj)        # conditional residuals
-fitted <- fitted(fit_adj)
-
-plot(fitted, resid,
-     xlab = "Fitted values",
-     ylab = "Residuals")
-abline(h = 0, lty = 2)
-
-hist(resid, breaks = 30, main = "Residuals", xlab = "Residual value")
-
-qqnorm(resid)
-qqline(resid)
-
+```{r cc-6-diagnostics, fig.height=6, fig.width=6}
+plot_lmm_diagnostics(fit_cc6)
 ```
 
 ### Missing at random (MAR)
 
-The first imputation analysis assumes that data are missing at random. Missing data were handled using multiple imputation with predictive mean matching (100 imputations). Linear mixed models with a random intercept for site were fitted within each imputed dataset and pooled using Rubin’s rules. The outcome was analyzed on the transformed scale. Global p‑values for categorical predictors were obtained using ANOVA (F-test). Adjusted marginal means were back‑transformed to the original scale for interpretability.
-
-#### Model results
-
-```{r, results="hide", eval=TRUE}
-# impute on transformed scale
-
-# narrow down dataset to only needed variables
-to_impute_mar <- analysis_data %>% 
-  select(subject, eortc_6norm, age_baseline, arm_c, ecog3, race_gp, educ_gp, crpc_per, site_country, site_timetodx, site_crpc, sitenew) |> 
-  mutate(sitenew = as.integer(sitenew))
-
-# only impute outcome but allow predictors
-meth <- make.method(to_impute_mar)
-meth["eortc_6norm"] <- "2l.pan" # multilevel method
-meth[names(meth) != "eortc_6norm"] <- ""
-
-pred <- make.predictorMatrix(to_impute_mar)
-# Allow all variables to predict eortc
-pred["eortc_6norm", "subject"]      <- 0
-pred["eortc_6norm", "eortc_6norm"]  <- 0   # keep diagonal at 0
-pred["eortc_6norm", "sitenew"] <- -2 # multilevel model
-
-
-# --- Multiple imputation
-imp_mar <- mice(to_impute_mar, 
-                method = meth,
-                predictorMatrix = pred,
-                m = 100, 
-                maxit = 1, 
-                seed = 123)
-# - pmm: Predictive mean matching (numeric)
-# - norm: Bayesian linear regression (numeric)
-# - logreg: Logistic regression (factor, 2 categories)
-# - polyreg: Polytomous (unordered) regression (factor, >= 2 categories)
-```
+The first imputation analysis assumes that data are missing at random. Missing data were handled using multiple imputation with predictive mean matching (`r n_imp` imputations). Linear mixed models with a random intercept for site were fitted within each imputed dataset and pooled using Rubin’s rules. The outcome was analyzed on the transformed scale. Global p‑values for categorical predictors were obtained using ANOVA (F-test). Adjusted marginal means were back‑transformed to the original scale for interpretability.
 
 Model coefficients and confidence intervals were pooled across imputations using Rubin’s rules. Global p‑values for categorical variables with \>2 levels were obtained using ANOVA, which combines information across imputations while accounting for correlations among category levels.
 
-```{r, results="hide"}
-# apply function to imputed data
-fit_list_mar <- with(imp_mar, 
-                 lmerTest::lmer(eortc_6norm ~ arm_c + age_baseline + ecog3 + race_gp + 
-                              educ_gp + crpc_per + site_country + site_timetodx + 
-                              site_crpc + (1|sitenew), REML = FALSE))
-
-# categorical variables (all)
-cat_vars <- c("arm_c", "ecog3", "race_gp", "educ_gp", "crpc_per", "site_country", "site_crpc")
-
-# function to extract global p-value for one variable at a time
-# note: this computes anova statistic in each imputed dataset and pools these statistics using a multivariate MI combination rule to produce a single p-value (MI extension of Rubin's framework for joint hypotheses)
-# get_global_anova <- function(mids_obj, outcome, var) {
-#   formula_str <- paste(outcome, "~", var)
-#   miceadds::mi.anova(
-#     mids_obj,
-#     formula = formula_str,
-#     type = 2
-#   ) %>%
-#     as.data.frame() %>%
-#     tibble::rownames_to_column("variable") %>%
-#     filter(variable != "Residual") %>%
-#     mutate(
-#       variable = str_trim(variable),
-#       row_type = "label",
-#       p.value = anova.table.Pr..F.
-#     ) %>%
-#     select(variable, row_type, p.value)
-# }
-
-# # compute each p-value
-# global_pvals <- bind_rows(
-#   lapply(
-#     cat_vars,
-#     function(v) get_global_anova(
-#       mids_obj = imp_mar,
-#       outcome  = "eortc_6norm",
-#       var      = v
-#     )
-#   )
-# )
-
-imp_list <- mitml::mids2mitml.list(imp_mar)   # plain list of 100 completed data frames
-
-all_terms <- c("arm_c","age_baseline","ecog3","race_gp","educ_gp",
-               "crpc_per","site_country","site_timetodx","site_crpc")
-
-fit_models <- function(terms) {
-  f <- reformulate(c(terms, "(1|sitenew)"), response = "eortc_6norm")
-  fits <- lapply(imp_list, function(d)
-    do.call(lmerTest::lmer, list(formula = f, data = d, REML = FALSE)))
-  class(fits) <- c("mitml.result", "list")
-  fits
-}
-
-full <- fit_models(all_terms)
-
-drop1_p <- function(var) {
-  red <- fit_models(setdiff(all_terms, var))
-  tt  <- mitml::testModels(full, red, method = "D3")
-  tibble::tibble(variable = var, row_type = "label", p.value = tt$test[, "P(>F)"])
-}
-
-global_pvals <- dplyr::bind_rows(lapply(cat_vars, drop1_p))
-
+```{r mi-6-mar, results="hide"}
+# impute on the transformed scale -> fit the mixed model in each imputation -> global p-values
+mar6 <- run_mi_scenario(analysis_data, o6, mi_scenarios$mar)
 ```
 
-```{r}
-# output table
-mar_tab <- fit_list_mar %>% 
-  tbl_regression(label = list(
-    arm_c     = "Treatment Arm",
-    age_baseline = "Age",
-    ecog3     = "ECOG Performance Status",
-    race_gp   = "Race",
-    educ_gp   = "Education Level",
-    crpc_per  = "Disease State",
-    site_timetodx = "Time from Diagnosis to Enrollment (Site-Level)",
-    site_crpc = "CRPC (Site-Level)",
-    site_country = "Country")) %>%
-  # add global p-value
-  modify_table_body(
-    ~ .x %>%
-      rename(original.p = p.value) %>%
-      mutate(original.p = scales::pvalue(original.p)) %>% 
-      left_join(
-        global_pvals,
-        by = c("variable", "row_type"))) %>% 
-  modify_header(original.p ~ "**P-value**",
-                p.value ~ "**Global p-value**") %>%
-  bold_labels() %>%
-  modify_footnote(
-    all_stat_cols() ~
-      "Estimates pooled across multiple imputations using Rubin’s rules."
-  ) %>%
-  modify_footnote(
-    p.value ~
-      "Global p-values are calculated from a pooled likelihood-ratio test (D3; Meng & Rubin, 1992) comparing the full mixed model with a model omitting that variable, with other covariates and a random site intercept retained."
-  ) 
-
-# hide wrong p-value for each variable
-mar_tab |>
-  modify_table_body(
-    ~ .x |>
-      dplyr::mutate(
-        # Remove term p-values for variables that use global tests
-        original.p = if_else(
-          variable %in% c("ecog3", "race_gp", "educ_gp", "site_country"),
-          NA,
-          original.p
-        ),
-        # Remove global p-values for variables that use term-level tests
-        p.value = if_else(
-          variable %in% c("arm_c", "crpc_per", "site_timetodx", "site_crpc", "age_baseline"),
-          NA,
-          p.value
-        )
-      )
-  ) %>% 
-  modify_caption("**Analysis of primary outcome with missing EORTC imputed under MAR assumptions**")
+```{r mi-6-mar-table}
+tbl_mi_regression(mar6)
 ```
 
-#### Back-transformed estimates
-
-```{r}
-
-# # Pool without broom
-# pooled_mar <- pool(fit_list_mar)
-# 
-# # Summarize and convert to tibble safely
-# res_mar <- summary(pooled_mar, conf.int = TRUE)
-# 
-# res_tibble_mar <- tibble::as_tibble(res_mar) |>
-#   dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
-# 
-
-fits <- fit_list_mar$analyses
-
-# pooled marginal means 
-emm_imp <- emmeans(fit_list_mar, ~ arm_c)
-
-# convert to data fram and back-transform
-emm_df <- as.data.frame(emm_imp) |>
-  dplyr::mutate(
-    mean_orig  = inv_eortc_trans(emmean),
-    lower_orig = inv_eortc_trans(upper.CL),
-    upper_orig = inv_eortc_trans(lower.CL)
-  ) |>
-  dplyr::select(
-    arm_c,
-    mean_orig,
-    lower_orig,
-    upper_orig
-  ) |>
-  dplyr::mutate(across(where(is.numeric), ~ round(., 1)))
-
-# create marginal means table
-gt(emm_df) |>
-  tab_header(
-    title = "Adjusted estimate (back-transformed) by treatment arm"  ) |>
-  cols_label(
-    arm_c = "Treatment Arm",
-    mean_orig = "Adjusted Mean",
-    lower_orig = "Lower 95% CI",
-    upper_orig = "Upper 95% CI"
-  ) 
-
-```
 
 ### Missing not at random (MNAR)
 
@@ -862,633 +1024,93 @@ Based on the relationship between ECOG and missingness of EORTC scores, we hypot
 
 -   Participants who were deceased prior to the 6-month EORTC were assigned an EORTC score of 0.
 
--   Imputation for missing EORTC scores for participants alive at 6 months was done according to the methods from Carerras ACTION study method: <https://link.springer.com/article/10.1186/s12874-020-01180-y> <br>
+-   Imputation for missing EORTC scores for participants alive at 6 months was done according to the methods from Carerras ACTION study method: <https://link.springer.com/article/10.1186/s12874-020-01180-y> 
 
-A shift of 5–10 points was considered a small clinically important difference in EORTC, while shifts of 10–20 points were considered moderate. Accordingly, imputed EORTC scores were shifted by 0 points for ECOG 0, down by approximately 7 points for ECOG 1, down by approximately 12 points for ECOG 2–4, and down by 10 points for participants missing ECOG. This reflects increasing assumed deterioration in unobserved quality-of-life outcomes with worsening performance status.
+#### Large shifts
 
-#### Fixed shift (MNAR)
+A shift of 5–10 points was considered a small clinically important difference in EORTC, while shifts of 10–20 points were considered moderate. Accordingly, imputed EORTC scores were shifted as follows: `r describe_shifts(delta_large)`. This reflects increasing assumed deterioration in unobserved quality-of-life outcomes with worsening performance status.
+
+##### Fixed shift (MNAR)
 
 A controlled imputation approach was used in which imputed outcomes were shifted by pre‑specified ECOG‑dependent deltas. The fixed shift was applied to all imputed values, representing the expected difference under an MNAR assumption.
 
-##### Model results
-
-```{r, results="hide"}
-
-# impute on transformed scale
-
-# The paper is implementing a pattern‑mixture / reference‑based multiple imputation approach, where:
-# * You impute missing outcomes under MAR
-# * Then apply a clinically motivated shift (δ‑adjustment) based on a QoL variable (ECOG)
-# * The shift reflects poorer outcomes for worse ECOG categories
-# This is sometimes called controlled imputation.
-
-# Conceptual Mapping to mice
-# In mice, this is implemented by:
-# 1) Imputing the outcome under MAR (standard regression imputation)
-# 2) Post‑processing the imputed values using:
-#   * ECOG score
-#   * A prespecified shift (δ) per ECOG level
-
-# --- data: deaths get worst score; site cluster as integer for 2l.pan
-ignore_dead <- analysis_data$dead6 == 1 & !is.na(analysis_data$dead6)
-
-# create subset of needed variables
-to_impute_mnar <- analysis_data %>%
-  mutate(eortc_6norm = ifelse(dead6 == 1 & is.na(eortc_6norm),
-                              eortc_trans(0), eortc_6norm)) %>%
-  select(subject, eortc_6norm, arm_c, age_baseline, ecog3, race_gp, educ_gp,
-         crpc_per, sitenew, site_country, site_timetodx, site_crpc) %>%
-  mutate(sitenew = as.integer(factor(sitenew)))
-
-stopifnot(eortc_trans(0) == 10)               # worst score = ceiling on this scale
-print(levels(to_impute_mnar$ecog3))           # must be "0","1","2-4","Unknown"
-print(colSums(is.na(to_impute_mnar)))         # only eortc_6norm should have NAs
-
-# mild option: 0, -5, -10 
-# upper option: 0, -10, -20
-
-# set up mice
-ini <- mice(to_impute_mnar, maxit = 0)
-post1 <- ini$post
-
-# only impute outcome but allow predictors
-meth <- make.method(to_impute_mnar)
-meth["eortc_6norm"] <- "2l.pan"
-
-pred <- make.predictorMatrix(to_impute_mnar)
-# Allow all variables to predict eortc
-pred["eortc_6norm", ] <- 1
-pred["eortc_6norm", c("subject", "eortc_6norm")] <- 0
-pred["eortc_6norm", "sitenew"] <- -2
-
-post1["eortc_6norm"] <- "
-  delta_ecog <- c(
-    `0` = 0,
-    `1` = -7,
-    `2-4` = -12,
-    `Unknown` = -10
-  )
-
-  # CRITICAL: get row indices from imp
-  rows <- match(rownames(imp[[j]]), rownames(data))
-  lev <- as.character(data$ecog3[rows])
-  d <- as.numeric(delta_ecog[lev])
-  if (anyNA(d)) stop('ECOG level not found in delta_ecog: ', paste(unique(lev[is.na(d)]), collapse = ', '))
-
-  # imputed values
-  z <- pmin(pmax(imp[[j]][, i], 0), 10) # keep on valid sqrt scale
-
-  # transform
-  x <- 100 - z^2
-  x_shifted <- pmin(pmax(x + d, 0), 100)
-
-  imp[[j]][, i] <- sqrt(100 - x_shifted)
-"
-
-# run mice
-imp_mnar1 <- mice(
-  to_impute_mnar,
-  m = 100, 
-  maxit = 1, 
-  seed = 123, 
-  method = meth,
-  predictorMatrix = pred,
-  post = post1,
-  ignore = ignore_dead
-)
-
+```{r mi-6-fixed_large, results="hide"}
+fixed6_large <- run_mi_scenario(analysis_data, o6, mi_scenarios$fixed_large)
 ```
 
-```{r, results="hide"}
-
-# apply function to imputed data
-fit_list_mnar1 <- with(imp_mnar1, 
-                       lmerTest::lmer(eortc_6norm ~ arm_c + age_baseline + ecog3 + race_gp + 
-                                    educ_gp + crpc_per + site_country + 
-                                    site_timetodx + site_crpc + (1|sitenew), 
-                                  REML = FALSE))
-
-# # Pool without broom
-# pooled_mnar1 <- pool(fit_list_mnar1)
-# 
-# # Summarize and convert to tibble safely
-# res_mnar1 <- summary(pooled_mnar1, conf.int = TRUE)
-# 
-# res_tibble_mnar1 <- tibble::as_tibble(res_mnar1) |>
-#   dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
-# 
-# res_tibble_mnar1
-
-
-# --- reusable global p-values (works for imp_mar and imp_mnar1)
-all_terms <- c("arm_c","age_baseline","ecog3","race_gp","educ_gp",
-               "crpc_per","site_country","site_timetodx","site_crpc")
-cat_vars  <- c("ecog3","race_gp","educ_gp","site_country")   # only the ones you display
-
-
-get_global_pvals <- function(imp) {
-  imp_list <- mitml::mids2mitml.list(imp)
-  fit_models <- function(terms) {
-    f <- reformulate(c(terms, "(1|sitenew)"), response = "eortc_6norm")
-    fits <- lapply(imp_list, function(d)
-      do.call(lmerTest::lmer, list(formula = f, data = d, REML = FALSE)))
-    class(fits) <- c("mitml.result", "list")
-    fits
-  }
-  full <- fit_models(all_terms)
-  dplyr::bind_rows(lapply(cat_vars, function(v) {
-    red <- fit_models(setdiff(all_terms, v))
-    tt  <- mitml::testModels(full, red, method = "D3")
-    tibble::tibble(variable = v, row_type = "label", p.value = tt$test[, "P(>F)"])
-  }))
-}
-
-global_pvals_mnar1 <- get_global_pvals(imp_mnar1)
-
+```{r mi-6-fixed-table_large}
+tbl_mi_regression(fixed6_large)
 ```
+
+##### Variable shift (MNAR)
+
+For participants alive at 6 months with a missing EORTC score, we assumed that a proportion of non-responders had worse unobserved QoL than predicted under MAR. Within each imputed dataset, each such participant was shifted downward on the original EORTC scale by an ECOG-specific amount (`r shift_list(delta_large)`) with probability p (ECOG-specific; `r p_text(mi_scenarios$variable_large$p_shift)`); the remaining participants were imputed under MAR. 
+
+```{r mi-6-variable_large, results="hide"}
+variable6_large <- run_mi_scenario(analysis_data, o6, mi_scenarios$variable_large)
+```
+
+```{r mi-6-variable-table_large}
+tbl_mi_regression(variable6_large)
+```
+
+#### More conservative shifts
+
+A shift of 5–10 points was considered a small clinically important difference in EORTC, while shifts of 10–20 points were considered moderate. Accordingly, imputed EORTC scores were shifted as follows: `r describe_shifts(delta_small)`. This reflects increasing assumed deterioration in unobserved quality-of-life outcomes with worsening performance status.
+
+##### Fixed shift (MNAR)
+
+A controlled imputation approach was used in which imputed outcomes were shifted by pre‑specified ECOG‑dependent deltas. The fixed shift was applied to all imputed values, representing the expected difference under an MNAR assumption.
+
+```{r mi-6-fixed_small, results="hide"}
+fixed6_small <- run_mi_scenario(analysis_data, o6, mi_scenarios$fixed_small)
+```
+
+```{r mi-6-fixed-table_small}
+tbl_mi_regression(fixed6_small)
+```
+
+##### Variable shift (MNAR)
+
+For participants alive at 6 months with a missing EORTC score, we assumed that a proportion of non-responders had worse unobserved QoL than predicted under MAR. Within each imputed dataset, each such participant was shifted downward on the original EORTC scale by an ECOG-specific amount (`r shift_list(delta_small)`) with probability p (ECOG-specific; `r p_text(mi_scenarios$variable_small$p_shift)`); the remaining participants were imputed under MAR. 
+
+```{r mi-6-variable_small, results="hide"}
+variable6_small <- run_mi_scenario(analysis_data, o6, mi_scenarios$variable_small)
+```
+
+```{r mi-6-variable-table_small}
+tbl_mi_regression(variable6_small)
+```
+
+### Back-transformed estimates
+
+Estimated marginal means, back-transformed to the original EORTC scale.
 
 ```{r}
-
-# output table
-fit_list_mnar1 %>% 
-  tbl_regression(label = list(
-    arm_c     = "Treatment Arm",
-    age_baseline = "Age",
-    ecog3     = "ECOG Performance Status",
-    race_gp   = "Race",
-    educ_gp   = "Education Level",
-    crpc_per  = "Disease State",
-    site_timetodx = "Time from Diagnosis to Enrollment (Site-Level)",
-    site_crpc = "CRPC (Site-Level)",
-    site_country = "Country")) %>%
-  # add global p-value
-  modify_table_body(
-    ~ .x %>%
-      rename(original.p = p.value) %>%
-      mutate(original.p = scales::pvalue(original.p)) %>%
-      left_join(global_pvals_mnar1, by = c("variable", "row_type")) %>%
-      mutate(
-        original.p = if_else(variable %in% cat_vars, NA_character_, original.p),
-        p.value    = if_else(variable %in% cat_vars, p.value, NA_real_))) %>%
-  modify_column_unhide(columns = c(original.p, p.value)) %>%
-  modify_header(original.p ~ "**P-value**", p.value ~ "**Global p-value**") %>%
-  bold_labels() %>%
-  modify_caption("**Analysis of primary outcome with missing EORTC imputed under MNAR assumptions (ECOG-dependent downward shift; deaths scored 0)**")
-
-
-# # Pool without broom
-# pooled_mar <- pool(fit_list_mar)
-# 
-# # Summarize and convert to tibble safely
-# res_mar <- summary(pooled_mar, conf.int = TRUE)
-# 
-# res_tibble_mar <- tibble::as_tibble(res_mar) |>
-#   dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
-# 
-
-```
-
-##### Back-transformed estimates
-
-```{r}
-
-# pooled marginal means 
-# Extract fitted models
-fits <- fit_list_mnar1$analyses
-
-# Compute emmeans for each imputation
-emm_list <- lapply(fits, emmeans, specs = ~ arm_c, lmer.df = "asymptotic")
-
-# Pool estimates using Rubin's rules
-Q <- lapply(emm_list, function(x) summary(x)$emmean)   # estimates
-U <- lapply(emm_list, function(x) as.matrix(vcov(x)))     # variances
-mi <- MIcombine(Q, U)
-
-# Compute pooled SEs and 95% CIs (on transformed scale)
-alpha <- 0.05
-est   <- as.numeric(mi$coefficients)
-se    <- sqrt(diag(mi$variance))
-tcrit <- qt(1 - alpha / 2, df = mi$df)
-
-# create data frame
-emm_imp <- data.frame(
-  arm_c    = summary(emm_list[[1]])$arm_c,
-  emmean   = est,
-  SE       = se,
-  lower.CL = est - tcrit * se,
-  upper.CL = est + tcrit * se
-)
-
-# convert to data frame and back-transform
-emm_df <- emm_imp |>
-  dplyr::mutate(
-    mean_orig  = inv_eortc_trans(emmean),
-    a = inv_eortc_trans(lower.CL),
-    b = inv_eortc_trans(upper.CL),
-    lower_orig = pmin(a, b),   # handles a decreasing transformation
-    upper_orig = pmax(a, b)
-    ) |>
-  dplyr::select(
-    arm_c,
-    mean_orig,
-    lower_orig,
-    upper_orig
-  ) |>
-  dplyr::mutate(across(where(is.numeric), ~ round(., 1)))
-
-# create marginal means table
-gt(emm_df) |>
-  tab_header(
-    title = "Adjusted estimate (back-transformed) by treatment arm"
-  ) |>
-  cols_label(
-    arm_c = "Treatment Arm",
-    mean_orig = "Adjusted Mean",
-    lower_orig = "Lower 95% CI",
-    upper_orig = "Upper 95% CI"
-  ) 
-
-```
-
-#### Variable shift (MNAR)
-
-For participants alive at 6 months with a missing EORTC score, we assumed that a proportion of non-responders had worse unobserved QoL than predicted under MAR. Within each imputed dataset, each such participant was shifted downward on the original EORTC scale by an ECOG-specific amount (−7 for ECOG 1, −12 for ECOG 2–4, −10 for unknown ECOG) with probability p (ECOG-specific; 0.5 in the primary scenario); the remaining participants were imputed under MAR. The implied average shifts are given in Table X.
-
-##### Model results
-
-```{r, results="hide"}
-# impute on transformed scale
-
-# The paper is implementing a pattern‑mixture / reference‑based multiple imputation approach, where:
-# * You impute missing outcomes under MAR
-# * Then apply a clinically motivated shift (δ‑adjustment) based on a QoL variable (ECOG)
-# * The shift reflects poorer outcomes for worse ECOG categories
-# This is sometimes called controlled imputation.
-
-# Conceptual Mapping to mice
-# In mice, this is implemented by:
-# 1) Imputing the outcome under MAR (standard regression imputation)
-# 2) Post‑processing the imputed values using:
-#   * ECOG score
-#   * A prespecified shift (δ) per ECOG level
-
-# --- data: deaths get worst score; site cluster as integer for 2l.pan
-ignore_dead <- analysis_data$dead6 == 1 & !is.na(analysis_data$dead6)
-
-stopifnot(eortc_trans(0) == 10)               # worst score = ceiling on this scale
-# print(levels(to_impute_mnar$ecog3))           # must be "0","1","2-4","Unknown"
-# print(colSums(is.na(to_impute_mnar)))         # only eortc_6norm should have NAs
-
-
-# set up mice
-ini <- mice(to_impute_mnar, maxit = 0)
-post2 <- ini$post
-
-# only impute outcome but allow predictors
-meth <- make.method(to_impute_mnar)
-meth["eortc_6norm"]   <- "2l.pan"
-
-pred <- make.predictorMatrix(to_impute_mnar)
-# Allow all variables to predict eortc
-pred["eortc_6norm", ] <- 1
-pred["eortc_6norm", c("subject", "eortc_6norm")] <- 0  # don't use ID
-pred["eortc_6norm", "sitenew"] <- -2 
-
-# # shift with some set probability 
-# post2["eortc_6norm"] <- "
-#   delta_ecog <- c(
-#     `0` = 0,
-#     `1` = -7,
-#     `2-4` = -12,
-#     `Unknown` = -10
-#   )
-# 
-#   p_shift <- 0.5
-# 
-#   # MNAR indicator
-#   shift_indicator <- rbinom(length(i), size = 1, prob = p_shift)
-# 
-#   # imputed values on sqrt(100 - x) scale
-#   z <- imp[[j]][, i]
-# 
-#   # back-transform to original scale
-#   x <- 100 - z^2
-# 
-#   # ECOG-specific delta (original scale)
-#   d <- delta_ecog[as.character(data$ecog3[i])]
-# 
-#   # compute equivalent shift on sqrt scale
-#   delta_z <- sqrt(100 - (x + d)) - sqrt(100 - x)
-# 
-#   # apply probabilistic shift
-#   imp[[j]][, i] <- z + shift_indicator * delta_z
-# "
-
-# # add random noise around the delta
-# post2["eortc_6norm"] <- "
-#   delta_ecog <- c(
-#     `0` = 0,
-#     `1` = -7,
-#     `2-4` = -12,
-#     `Unknown` = -10
-#   )
-# 
-#   sd_ecog <- c(
-#     `0` = 2,
-#     `1` = 3,
-#     `2-4` = 4,
-#     `Unknown` = 3
-#   )
-# 
-#   # imputed values (sqrt scale)
-#   z <- imp[[j]][, i]
-# 
-#   # CRITICAL: use rownames for alignment
-#   rows <- as.integer(rownames(imp[[j]]))
-# 
-#   ecog_vals <- as.character(data$ecog3[rows])
-# 
-#   # deterministic shift
-#   d_mean <- delta_ecog[ecog_vals]
-# 
-#   # stochastic noise (aligned!)
-#   d_noise <- rnorm(length(d_mean), mean = 0, sd = sd_ecog[ecog_vals])
-# 
-#   d_total <- d_mean + d_noise
-# 
-#   # safety: no NA shifts
-#   d_total[is.na(d_total)] <- 0
-# 
-#   # back-transform
-#   x <- 100 - z^2
-# 
-#   # apply shift with bounds
-#   x_shifted <- pmin(pmax(x + d_total, 0), 100)
-# 
-#   # ensure valid sqrt input
-#   val <- 100 - x_shifted
-#   val[val < 0] <- 0
-# 
-#   imp[[j]][, i] <- sqrt(val)
-# "
-
-# probabilistic shift - shift people 50% of the time
-post2["eortc_6norm"] <- "
-  delta  <- c(`0` = 0, `1` = -7,  `2-4` = -12, `Unknown` = -10)  # shift if MNAR (raw points)
-  p_mnar <- c(`0` = 0, `1` = 0.5, `2-4` = 0.5, `Unknown` = 0.5)  # probability of being shifted
-
-  rows <- match(rownames(imp[[j]]), rownames(data))
-  lev  <- as.character(data$ecog3[rows])
-  if (anyNA(rows) || any(!lev %in% names(delta)))
-    stop('Unmatched row or ECOG level in post function')
-
-  # each missing participant is MNAR (shifted) with probability p, else left as MAR
-  shifted <- rbinom(length(lev), size = 1, prob = unname(p_mnar[lev]))
-  d <- unname(delta[lev]) * shifted
-
-  z <- pmin(pmax(imp[[j]][, i], 0), 10)
-  x <- 100 - z^2
-  x_shifted <- pmin(pmax(x + d, 0), 100)
-  imp[[j]][, i] <- sqrt(100 - x_shifted)
-"
-
-# run mice
-imp_mnar2 <- mice(
-  to_impute_mnar,
-  m = 100, 
-  maxit = 1, 
-  seed = 123, 
-  predictorMatrix = pred,
-  post = post2,
-  method = meth,
-  ignore = ignore_dead
-)
-```
-
-```{r, results="hide"}
-
-# apply function to imputed data
-fit_list_mnar2 <- with(imp_mnar2, 
-                       lme4::lmer(eortc_6norm ~ arm_c + age_baseline + ecog3 + race_gp + 
-                                    educ_gp + crpc_per + site_country + 
-                                    site_timetodx + site_crpc + (1|sitenew), 
-                                  REML = FALSE))
-
-# # Pool without broom
-# pooled_mnar2 <- pool(fit_list_mnar2)
-# 
-# # Summarize and convert to tibble safely
-# res_mnar2 <- summary(pooled_mnar2, conf.int = TRUE)
-# 
-# res_tibble_mnar2 <- tibble::as_tibble(res_mnar2) |>
-#   dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
-# 
-# res_tibble_mnar2
-
-# --- reusable global p-values 
-# all_terms <- c("arm_c","age_baseline","ecog3","race_gp","educ_gp",
-#                "crpc_per","site_country","site_timetodx","site_crpc")
-# cat_vars  <- c("ecog3","race_gp","educ_gp","site_country")   # only the ones you display
-# 
-# get_global_pvals <- function(imp) {
-#   imp_list <- mitml::mids2mitml.list(imp)
-#   fit_models <- function(terms) {
-#     f <- reformulate(c(terms, "(1|sitenew)"), response = "eortc_6norm")
-#     fits <- lapply(imp_list, function(d)
-#       do.call(lmerTest::lmer, list(formula = f, data = d, REML = FALSE)))
-#     class(fits) <- c("mitml.result", "list")
-#     fits
-#   }
-#   full <- fit_models(all_terms)
-#   dplyr::bind_rows(lapply(cat_vars, function(v) {
-#     red <- fit_models(setdiff(all_terms, v))
-#     tt  <- mitml::testModels(full, red, method = "D3")
-#     tibble::tibble(variable = v, row_type = "label", p.value = tt$test[, "P(>F)"])
-#   }))
-# }
-
-global_pvals_mnar2 <- get_global_pvals(imp_mnar2)
-
-```
-
-```{r}
-# output table
-fit_list_mnar2 %>% 
-  tbl_regression(label = list(
-    arm_c     = "Treatment Arm",
-    age_baseline = "Age",
-    ecog3     = "ECOG Performance Status",
-    race_gp   = "Race",
-    educ_gp   = "Education Level",
-    crpc_per  = "Disease State",
-    site_timetodx = "Time from Diagnosis to Enrollment (Site-Level)",
-    site_crpc = "CRPC (Site-Level)",
-    site_country = "Country")) %>%
-  # add global p-value
-  modify_table_body(
-    ~ .x %>%
-      rename(original.p = p.value) %>%
-      mutate(original.p = scales::pvalue(original.p)) %>%
-      left_join(global_pvals_mnar2, by = c("variable", "row_type")) %>%
-      mutate(
-        original.p = if_else(variable %in% cat_vars, NA_character_, original.p),
-        p.value    = if_else(variable %in% cat_vars, p.value, NA_real_)
-      )) %>%
-  modify_column_unhide(columns = c(original.p, p.value)) %>%
-  modify_header(original.p ~ "**P-value**", p.value ~ "**Global p-value**") %>%
-  bold_labels() %>%
-  modify_caption("**Analysis of primary outcome with missing EORTC imputed under MNAR assumptions (ECOG-dependent downward shift with noise; deaths scored 0)**")
-# 
-```
-
-##### Back-transformed estimates
-
-```{r}
-
-# pooled marginal means 
-# Extract fitted models
-fits <- fit_list_mnar2$analyses
-
-# Compute emmeans for each imputation
-emm_list <- lapply(fits, emmeans, specs = ~ arm_c, lmer.df = "asymptotic")
-
-# Pool estimates using Rubin's rules
-Q <- lapply(emm_list, function(x) summary(x)$emmean)   # estimates
-U <- lapply(emm_list, function(x) as.matrix(vcov(x)))     # variances
-mi <- MIcombine(Q, U)
-
-# Compute pooled SEs and 95% CIs (on transformed scale)
-alpha <- 0.05
-est   <- as.numeric(mi$coefficients)
-se    <- sqrt(diag(mi$variance))
-tcrit <- qt(1 - alpha / 2, df = mi$df)
-
-# create data frame
-emm_imp <- data.frame(
-  arm_c    = summary(emm_list[[1]])$arm_c,
-  emmean   = est,
-  SE       = se,
-  lower.CL = est - tcrit * se,
-  upper.CL = est + tcrit * se
-)
-
-# convert to data frame and back-transform
-emm_df <- emm_imp |>
-  dplyr::mutate(
-    mean_orig  = inv_eortc_trans(emmean),
-    a = inv_eortc_trans(lower.CL),
-    b = inv_eortc_trans(upper.CL),
-    lower_orig = pmin(a, b),   # handles a decreasing transformation
-    upper_orig = pmax(a, b)
-    ) |>
-  dplyr::select(
-    arm_c,
-    mean_orig,
-    lower_orig,
-    upper_orig
-  ) |>
-  dplyr::mutate(across(where(is.numeric), ~ round(., 1)))
-
-# create marginal means table
-gt(emm_df) |>
-  tab_header(
-    title = "Adjusted estimate (back-transformed) by treatment arm"
-  ) |>
-  cols_label(
-    arm_c = "Treatment Arm",
-    mean_orig = "Adjusted Mean",
-    lower_orig = "Lower 95% CI",
-    upper_orig = "Upper 95% CI"
-  ) 
-
-
+emm_table_combined(fit_cc6, list(mar6, fixed6_large, fixed6_small, variable6_large, variable6_small),
+                   method_labels = c("Complete case", 
+                                     "MAR", 
+                                     "MNAR - large fixed shift", 
+                                     "MNAR - small fixed shift", 
+                                     "MNAR - large variable shift",
+                                     "MNAR - small variable shift"))
 ```
 
 ### Compare distributions of EORTC
 
 These plots show the distributions of outcomes for the various models, including the complete cases and the data generated for each imputation method. Note that the values are on the transformed scale, so upward shifts in the distribution on the transformed scale correspond to lower values of EORTC on the native scale.
 
-```{r, echo=FALSE}
-# complete cases
-complete_cases <- analysis_data %>%
-  dplyr::filter(!is.na(eortc_6norm)) %>%
-  dplyr::mutate(source = "Complete case")
-
-# extract MAR-imputed values - 60 missing EORTC-6 * 100 imputations
-long_mar <- complete(imp_mar, action = "long") %>%
-  dplyr::mutate(source = "MAR imputation") %>%
-  dplyr::mutate(
-    was_missing = is.na(to_impute_mar$eortc_6norm[match(subject, to_impute_mar$subject)])
-  ) %>%
-  dplyr::filter(was_missing)
-
-# extract MNAR-imputed values
-long_mnar1 <- complete(imp_mnar1, action = "long") %>%
-  dplyr::mutate(source = "MNAR imputation - fixed") %>%
-  dplyr::mutate(
-    was_missing = is.na(to_impute_mnar$eortc_6norm[match(subject, to_impute_mnar$subject)])
-  ) %>%
-  dplyr::filter(was_missing)
-
-# extract MNAR-imputed values
-long_mnar2 <- complete(imp_mnar2, action = "long") %>%
-  dplyr::mutate(source = "MNAR imputation - variable") %>%
-  dplyr::mutate(
-    was_missing = is.na(to_impute_mnar$eortc_6norm[match(subject, to_impute_mnar$subject)])
-  ) %>%
-  dplyr::filter(was_missing)
-
-
-# combine all sources
-eortc_all <- dplyr::bind_rows(
-  complete_cases %>% dplyr::select(subject, ecog3, eortc_6norm, source),
-  long_mar      %>% dplyr::select(subject, ecog3, eortc_6norm, source),
-  long_mnar1    %>% dplyr::select(subject, ecog3, eortc_6norm, source),
-  long_mnar2    %>% dplyr::select(subject, ecog3, eortc_6norm, source)
-)
-
-# density plot
-ggplot(eortc_all, aes(x = eortc_6norm, fill = source)) +
-  geom_density(alpha = 0.4) +
-  labs(
-    title = "Distribution of EORTC scores",
-    subtitle = "Complete cases vs MAR and ECOG-adjusted imputations",
-    x = "EORTC score",
-    y = "Density"
-  ) +
-  theme_bw() +
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14))
-
-# stratify by ECOG
-ggplot(eortc_all, aes(x = eortc_6norm, fill = source)) +
-  geom_density(alpha = 0.4) +
-  facet_wrap(~ ecog3) +
-  labs(
-    title = "EORTC distributions by ECOG score",
-    subtitle = "Observed vs MAR vs MNAR imputations",
-    x = "EORTC score (transformed scale)",
-    y = "Density"
-  ) +
-  theme_bw() +
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        plot.subtitle = element_text(size=16, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14))
-
-
+```{r compare-6, echo=FALSE}
+cmp6 <- compare_eortc_distributions(analysis_data, o6$norm, list(mar6, fixed6_large, variable6_large))
+cmp6$overall   # all participants
+cmp6$by_ecog   # stratified by ECOG
 ```
 
 ## Effect of technical bug
 The effect of the EMPRO technical bug (thank you module not showing personalized self-management content) is analyzed using complete case analysis with a linear mixed model (F-test). A new exposure variable was created to represent the extent to which the technical bug affected each participant.
 
 #### Bug presence 
-```{r}
+```{r bug-presence}
 analysis_data %>% 
   select(yn_eortc_6, full_dose) %>% 
   mutate(yn_eortc_6 = factor(yn_eortc_6, levels = c("FALSE", "TRUE"), labels=c("EORTC missing at 6 mo", "EORTC completed at 6 mo"))) %>% 
@@ -1499,124 +1121,31 @@ analysis_data %>%
   modify_caption("**Summary of participants who started the study after the technical bug was fixed and the number who will drop out of the complete case analysis in each group**")
 ```
 
-
 #### Model results
 
-```{r}
+```{r bug-model}
+# same complete case model, with bug impact as the exposure instead of arm
+fit_bug <- fit_cc_model(analysis_data6, o6$norm, exposure = "full_dose")
 
-# linear mixed model
-fit_adj <- lmer(eortc_6norm ~ full_dose + age_baseline + ecog3 + race_gp + educ_gp + crpc_per + 
-              site_country + site_timetodx + site_crpc +
-              (1 | sitenew), data = analysis_data6, REML = TRUE)
-# singular warning: random-effect variance for sitenew is estimated ≈ 0 in many imputations.
-
-# main table with term p-values
-main_tab <- fit_adj %>% 
-  tbl_regression(label = list(full_dose = "Bug impact", 
-                              ecog3 = "ECOG", 
-                              site_country = "Country", 
-                              site_timetodx = "Time from diagnosis to enrollment (site average)", 
-                              site_crpc = "Percent CRPC (site average)")) %>% 
-  bold_labels() 
-
-# table of only global p-values
-global_p_tab <- fit_adj %>% 
-  tbl_regression(label = list(full_dose = "Bug impact", 
-                              ecog3 = "ECOG", 
-                              site_country = "Country", 
-                              site_timetodx = "Time from diagnosis to enrollment (site average)", 
-                              site_crpc = "Percent CRPC (site average)")) %>% 
-  add_global_p() %>% 
-  bold_labels() %>% # show_header_names()
-  modify_column_hide(estimate) %>% 
-  modify_column_hide(conf.low)
-
-# merge tables
-cc_tab <- tbl_merge(list(main_tab, global_p_tab)) %>% 
-  modify_spanning_header(everything() ~ NA_character_) %>% 
-  modify_header(p.value_1 ~ "**P-value**",
-                p.value_2 ~ "**Global p-value**")
-
-
-
-# hide wrong p-value for each variable
-cc_tab |>
-  modify_table_body(
-    ~ .x |>
-      dplyr::mutate(
-        # Remove term p-values for variables that use global tests
-        p.value_1 = if_else(
-          variable %in% c("full_dose", "ecog3", "race_gp", "educ_gp", "site_country"),
-          NA,
-          p.value_1
-        ),
-        # Remove global p-values for variables that use term-level tests
-        p.value_2 = if_else(
-          variable %in% c("crpc_per", "site_timetodx", "site_crpc", "age_baseline"),
-          NA,
-          p.value_2
-        )
-      )
-  ) %>% 
-  modify_footnote(
-    p.value_2 ~
-      "Global p-values obtained from ANOVA"
-  ) %>% 
-  modify_caption("**Analysis of effect of technical bug on primary outcome - complete case analysis**")
-
-
+tbl_cc_regression(fit_bug,
+                  caption = "**Analysis of effect of technical bug on primary outcome - complete case analysis**",
+                  global_vars = c("full_dose", global_test_vars))
 ```
 
 #### Back-transformed estimates
 
 Estimated marginal means, back-transformed to the original EORTC scale.
 
-```{r}
-# estimated marginal means by arm
-emm_arm <- emmeans(fit_adj, ~ full_dose)
-
-# convert to data frame and back-transform
-emm_df <- as.data.frame(emm_arm) %>%
-  mutate(
-    mean_orig = inv_eortc_trans(emmean),
-    lower_orig = inv_eortc_trans(upper.CL),
-    upper_orig = inv_eortc_trans(lower.CL)
-  ) %>%
-  select(
-    full_dose,
-    mean_orig,
-    lower_orig,
-    upper_orig
-  ) %>%
-  mutate(
-    mean_orig = round(mean_orig, 1),
-    lower_orig = round(lower_orig, 1),
-    upper_orig = round(upper_orig, 1)
-  )
-
-# create table
-gt(emm_df) %>%
-  tab_header(
-    title = "Adjusted Mean Composite Scores by Bug Impact",
-    subtitle = paste0("Back-transformed estimates from the ", trans, " scale"),
-  ) %>%
-  cols_label(
-    full_dose = "Bug Impact",
-    mean_orig = "Adjusted Mean",
-    lower_orig = "Lower 95% CI",
-    upper_orig = "Upper 95% CI"
-  ) %>%
-  tab_source_note(
-    source_note = paste(
-      "Means were estimated from the mixed model and",
-      "back-transformed to the original composite score scale."
-    )
-  )
-
-
+```{r bug-emm}
+emm_table_cc(fit_bug, "full_dose",
+             group_label = "Bug Impact",
+             title = "Adjusted Mean Composite Scores by Bug Impact",
+             subtitle = paste0("Back-transformed estimates from the ", trans, " scale"),
+             note = paste("Means were estimated from the mixed model and",
+                          "back-transformed to the original composite score scale."))
 ```
 
-# EORTC at 12 months
+# Outcome: EORTC at 12 months
 
 ## Permutation test
 
@@ -1626,15 +1155,8 @@ Intervention effect was analyzed using linear mixed models, with statistical inf
 
 Only adjusted for subject-level covariates
 
-```{r}
-
-perm1 <- cptest(outcome = analysis_data12$eortc_12norm,
-       clustername = analysis_data12$sitenew,
-       z = data.frame(analysis_data12[ , c("age_baseline", "ecog3", "race_gp", "educ_gp", "crpc_per")]), 
-       cspacedatname = "H:/GU/EMPRO/Randomization/empro_constrained.csv",
-       outcometype = "continuous",                                                      
-       categorical = c("ecog3", "race_gp", "educ_gp", "crpc_per"))
-
+```{r perm-12-model1}
+perm1 <- run_cptest(analysis_data12, o12$norm, covs = subject_covs)
 ```
 
 `r perm1$pvalue_statement`
@@ -1643,16 +1165,8 @@ perm1 <- cptest(outcome = analysis_data12$eortc_12norm,
 
 Adjusted for subject-level covariates and site-level covariates included in the randomization scheme (measured at the time of randomization).
 
-```{r}
-
-perm2 <- cptest(outcome = analysis_data12$eortc_12norm,
-       clustername = analysis_data12$sitenew,
-       z = data.frame(analysis_data12[ , c("age_baseline", "ecog3", "race_gp", "educ_gp", "crpc_per",
-                                          "site_country", "site_timetodx", "site_crpc")]), 
-       cspacedatname = "H:/GU/EMPRO/Randomization/empro_constrained.csv",
-       outcometype = "continuous",                                                      
-       categorical = c("ecog3", "race_gp", "educ_gp", "crpc_per", "site_country"))
-
+```{r perm-12-model2}
+perm2 <- run_cptest(analysis_data12, o12$norm, covs = adj_terms)
 ```
 
 `r perm2$pvalue_statement`
@@ -1673,977 +1187,128 @@ Importantly, this does not change the underlying clinical relationships—it onl
 
 ### Complete case analysis
 
-#### Model results
 
-```{r}
-# linear mixed model
-fit_adj <- lmer(eortc_12norm ~ arm_c + age_baseline + ecog3 + race_gp + educ_gp + crpc_per + 
-              site_country + site_timetodx + site_crpc +
-              (1 | sitenew), data = analysis_data12, REML = TRUE)
-# singular warning: random-effect variance for sitenew is estimated ≈ 0 in many imputations.
+```{r cc-12-model}
+fit_cc12 <- fit_cc_model(analysis_data12, o12$norm)
 
-# main table with term p-values
-main_tab <- fit_adj %>% 
-  tbl_regression(label = list(arm_c = "Arm", 
-                              ecog3 = "ECOG", 
-                              site_country = "Country", 
-                              site_timetodx = "Time from diagnosis to enrollment (site average)", 
-                              site_crpc = "Percent CRPC (site average)")) %>% 
-  bold_labels() 
-
-# table of only global p-values
-global_p_tab <- fit_adj %>% 
-  tbl_regression(label = list(arm_c = "Arm", 
-                              ecog3 = "ECOG", 
-                              site_country = "Country", 
-                              site_timetodx = "Time from diagnosis to enrollment (site average)", 
-                              site_crpc = "Percent CRPC (site average)")) %>% 
-  add_global_p() %>% 
-  bold_labels() %>% # show_header_names()
-  modify_column_hide(estimate) %>% 
-  modify_column_hide(conf.low)
-
-# merge tables
-cc_tab <- tbl_merge(list(main_tab, global_p_tab)) %>% 
-  modify_spanning_header(everything() ~ NA_character_) %>% 
-  modify_header(p.value_1 ~ "**P-value**",
-                p.value_2 ~ "**Global p-value**")
-
-
-
-# hide wrong p-value for each variable
-cc_tab |>
-  modify_table_body(
-    ~ .x |>
-      dplyr::mutate(
-        # Remove term p-values for variables that use global tests
-        p.value_1 = if_else(
-          variable %in% c("ecog3", "race_gp", "educ_gp", "site_country"),
-          NA,
-          p.value_1
-        ),
-        # Remove global p-values for variables that use term-level tests
-        p.value_2 = if_else(
-          variable %in% c("arm_c", "crpc_per", "site_timetodx", "site_crpc", "age_baseline"),
-          NA,
-          p.value_2
-        )
-      )
-  ) %>% 
-  modify_footnote(
-    p.value_2 ~
-      "Global p-values obtained from ANOVA"
-  )  %>% 
-  modify_caption("**Complete case analysis of primary outcome**")
-
-
-```
-
-#### Back-transformed estimates
-
-Estimated marginal means, back-transformed to the original EORTC scale.
-
-```{r}
-# estimated marginal means by arm
-emm_arm <- emmeans(fit_adj, ~ arm_c)
-
-# convert to data frame and back-transform
-emm_df <- as.data.frame(emm_arm) %>%
-  mutate(
-    mean_orig = inv_eortc_trans(emmean),
-    lower_orig = inv_eortc_trans(upper.CL),
-    upper_orig = inv_eortc_trans(lower.CL)
-  ) %>%
-  select(
-    arm_c,
-    mean_orig,
-    lower_orig,
-    upper_orig
-  ) %>%
-  mutate(
-    mean_orig = round(mean_orig, 1),
-    lower_orig = round(lower_orig, 1),
-    upper_orig = round(upper_orig, 1)
-  )
-
-# create table
-gt(emm_df) %>%
-  tab_header(
-    title = "Adjusted estimate (back-transformed) by treatment arm"
-  ) %>%
-  cols_label(
-    arm_c = "Treatment Arm",
-    mean_orig = "Adjusted Mean",
-    lower_orig = "Lower 95% CI",
-    upper_orig = "Upper 95% CI"
-  ) 
-
-
+tbl_cc_regression(fit_cc12, caption = "**Complete case analysis of primary outcome**")
 ```
 
 #### Model diagnostics
 
 These plots show normality of the residuals from the mixed model, which further supports the transformation of the outcome, EORTC.
 
-```{r, fig.height=6, fig.width=6}
-# residuals
-resid <- resid(fit_adj)        # conditional residuals
-fitted <- fitted(fit_adj)
-
-plot(fitted, resid,
-     xlab = "Fitted values",
-     ylab = "Residuals")
-abline(h = 0, lty = 2)
-
-hist(resid, breaks = 30, main = "Residuals", xlab = "Residual value")
-
-qqnorm(resid)
-qqline(resid)
-
+```{r cc-12-diagnostics, fig.height=6, fig.width=6}
+plot_lmm_diagnostics(fit_cc12)
 ```
 
 ### Missing at random (MAR)
 
-The first imputation analysis assumes that data are missing at random. Missing data were handled using multiple imputation with predictive mean matching (100 imputations). Linear mixed models with a random intercept for site were fitted within each imputed dataset and pooled using Rubin’s rules. The outcome was analyzed on the transformed scale. Global p‑values for categorical predictors were obtained using ANOVA (F-test). Adjusted marginal means were back‑transformed to the original scale for interpretability.
-
-#### Model results
-
-```{r, results="hide", eval=TRUE}
-# impute on transformed scale
-
-# narrow down dataset to only needed variables
-to_impute_mar <- analysis_data %>% 
-  select(subject, eortc_12norm, age_baseline, arm_c, ecog3, race_gp, educ_gp, crpc_per, site_country, site_timetodx, site_crpc, sitenew) |> 
-  mutate(sitenew = as.integer(sitenew))
-
-# only impute outcome but allow predictors
-meth <- make.method(to_impute_mar)
-meth["eortc_12norm"] <- "2l.pan" # multilevel method
-meth[names(meth) != "eortc_12norm"] <- ""
-
-pred <- make.predictorMatrix(to_impute_mar)
-# Allow all variables to predict eortc
-pred["eortc_12norm", "subject"]      <- 0
-pred["eortc_12norm", "eortc_12norm"]  <- 0   # keep diagonal at 0
-pred["eortc_12norm", "sitenew"] <- -2 # multilevel model
-
-
-# --- Multiple imputation
-imp_mar <- mice(to_impute_mar, 
-                method = meth,
-                predictorMatrix = pred,
-                m = 100, 
-                maxit = 1, 
-                seed = 123)
-# - pmm: Predictive mean matching (numeric)
-# - norm: Bayesian linear regression (numeric)
-# - logreg: Logistic regression (factor, 2 categories)
-# - polyreg: Polytomous (unordered) regression (factor, >= 2 categories)
-```
+The first imputation analysis assumes that data are missing at random. Missing data were handled using multiple imputation with predictive mean matching (`r n_imp` imputations). Linear mixed models with a random intercept for site were fitted within each imputed dataset and pooled using Rubin’s rules. The outcome was analyzed on the transformed scale. Global p‑values for categorical predictors were obtained using ANOVA (F-test). Adjusted marginal means were back‑transformed to the original scale for interpretability.  
 
 Model coefficients and confidence intervals were pooled across imputations using Rubin’s rules. Global p‑values for categorical variables with \>2 levels were obtained using ANOVA, which combines information across imputations while accounting for correlations among category levels.
 
-```{r, results="hide"}
-# apply function to imputed data
-fit_list_mar <- with(imp_mar, 
-                 lmerTest::lmer(eortc_12norm ~ arm_c + age_baseline + ecog3 + race_gp + 
-                              educ_gp + crpc_per + site_country + site_timetodx + 
-                              site_crpc + (1|sitenew), REML = FALSE))
-
-# categorical variables (all)
-cat_vars <- c("arm_c", "ecog3", "race_gp", "educ_gp", "crpc_per", "site_country", "site_crpc")
-
-# function to extract global p-value for one variable at a time
-# note: this computes anova statistic in each imputed dataset and pools these statistics using a multivariate MI combination rule to produce a single p-value (MI extension of Rubin's framework for joint hypotheses)
-# get_global_anova <- function(mids_obj, outcome, var) {
-#   formula_str <- paste(outcome, "~", var)
-#   miceadds::mi.anova(
-#     mids_obj,
-#     formula = formula_str,
-#     type = 2
-#   ) %>%
-#     as.data.frame() %>%
-#     tibble::rownames_to_column("variable") %>%
-#     filter(variable != "Residual") %>%
-#     mutate(
-#       variable = str_trim(variable),
-#       row_type = "label",
-#       p.value = anova.table.Pr..F.
-#     ) %>%
-#     select(variable, row_type, p.value)
-# }
-
-# # compute each p-value
-# global_pvals <- bind_rows(
-#   lapply(
-#     cat_vars,
-#     function(v) get_global_anova(
-#       mids_obj = imp_mar,
-#       outcome  = "eortc_12norm",
-#       var      = v
-#     )
-#   )
-# )
-
-imp_list <- mitml::mids2mitml.list(imp_mar)   # plain list of 100 completed data frames
-
-all_terms <- c("arm_c","age_baseline","ecog3","race_gp","educ_gp",
-               "crpc_per","site_country","site_timetodx","site_crpc")
-
-fit_models <- function(terms) {
-  f <- reformulate(c(terms, "(1|sitenew)"), response = "eortc_12norm")
-  fits <- lapply(imp_list, function(d)
-    do.call(lmerTest::lmer, list(formula = f, data = d, REML = FALSE)))
-  class(fits) <- c("mitml.result", "list")
-  fits
-}
-
-full <- fit_models(all_terms)
-
-drop1_p <- function(var) {
-  red <- fit_models(setdiff(all_terms, var))
-  tt  <- mitml::testModels(full, red, method = "D3")
-  tibble::tibble(variable = var, row_type = "label", p.value = tt$test[, "P(>F)"])
-}
-
-global_pvals <- dplyr::bind_rows(lapply(cat_vars, drop1_p))
-
+```{r mi-12-mar, results="hide"}
+mar12 <- run_mi_scenario(analysis_data, o12, mi_scenarios$mar)
 ```
 
-```{r}
-# output table
-mar_tab <- fit_list_mar %>% 
-  tbl_regression(label = list(
-    arm_c     = "Treatment Arm",
-    age_baseline = "Age",
-    ecog3     = "ECOG Performance Status",
-    race_gp   = "Race",
-    educ_gp   = "Education Level",
-    crpc_per  = "Disease State",
-    site_timetodx = "Time from Diagnosis to Enrollment (Site-Level)",
-    site_crpc = "CRPC (Site-Level)",
-    site_country = "Country")) %>%
-  # add global p-value
-  modify_table_body(
-    ~ .x %>%
-      rename(original.p = p.value) %>%
-      mutate(original.p = scales::pvalue(original.p)) %>% 
-      left_join(
-        global_pvals,
-        by = c("variable", "row_type"))) %>% 
-  modify_header(original.p ~ "**P-value**",
-                p.value ~ "**Global p-value**") %>%
-  bold_labels() %>%
-  modify_footnote(
-    all_stat_cols() ~
-      "Estimates pooled across multiple imputations using Rubin’s rules."
-  ) %>%
-  modify_footnote(
-    p.value ~
-      "Global p-values are calculated from a pooled likelihood-ratio test (D3; Meng & Rubin, 1992) comparing the full mixed model with a model omitting that variable, with other covariates and a random site intercept retained."
-  ) 
-
-# hide wrong p-value for each variable
-mar_tab |>
-  modify_table_body(
-    ~ .x |>
-      dplyr::mutate(
-        # Remove term p-values for variables that use global tests
-        original.p = if_else(
-          variable %in% c("ecog3", "race_gp", "educ_gp", "site_country"),
-          NA,
-          original.p
-        ),
-        # Remove global p-values for variables that use term-level tests
-        p.value = if_else(
-          variable %in% c("arm_c", "crpc_per", "site_timetodx", "site_crpc", "age_baseline"),
-          NA,
-          p.value
-        )
-      )
-  ) %>% 
-  modify_caption("**Analysis of primary outcome with missing EORTC imputed under MAR assumptions**")
-```
-
-#### Back-transformed estimates
-
-```{r}
-
-# # Pool without broom
-# pooled_mar <- pool(fit_list_mar)
-# 
-# # Summarize and convert to tibble safely
-# res_mar <- summary(pooled_mar, conf.int = TRUE)
-# 
-# res_tibble_mar <- tibble::as_tibble(res_mar) |>
-#   dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
-# 
-
-fits <- fit_list_mar$analyses
-
-# pooled marginal means 
-emm_imp <- emmeans(fit_list_mar, ~ arm_c)
-
-# convert to data fram and back-transform
-emm_df <- as.data.frame(emm_imp) |>
-  dplyr::mutate(
-    mean_orig  = inv_eortc_trans(emmean),
-    lower_orig = inv_eortc_trans(upper.CL),
-    upper_orig = inv_eortc_trans(lower.CL)
-  ) |>
-  dplyr::select(
-    arm_c,
-    mean_orig,
-    lower_orig,
-    upper_orig
-  ) |>
-  dplyr::mutate(across(where(is.numeric), ~ round(., 1)))
-
-# create marginal means table
-gt(emm_df) |>
-  tab_header(
-    title = "Adjusted estimate (back-transformed) by treatment arm"  ) |>
-  cols_label(
-    arm_c = "Treatment Arm",
-    mean_orig = "Adjusted Mean",
-    lower_orig = "Lower 95% CI",
-    upper_orig = "Upper 95% CI"
-  ) 
-
+```{r mi-12-mar-table}
+tbl_mi_regression(mar12)
 ```
 
 ### Missing not at random (MNAR)
+
 
 Based on the relationship between ECOG and missingness of EORTC scores, we hypothesize that data are not missing at random. To try to more accurately impute data we use the following steps:
 
 -   Participants who were deceased prior to the 12-month EORTC were assigned an EORTC score of 0.
 
--   Imputation for missing EORTC scores for participants alive at 12 months was done according to the methods from Carerras ACTION study method: <https://link.springer.com/article/10.1186/s12874-020-01180-y> <br>
+-   Imputation for missing EORTC scores for participants alive at 12 months was done according to the methods from Carerras ACTION study method: <https://link.springer.com/article/10.1186/s12874-020-01180-y> 
 
-A shift of 5–10 points was considered a small clinically important difference in EORTC, while shifts of 10–20 points were considered moderate. Accordingly, imputed EORTC scores were shifted by 0 points for ECOG 0, down by approximately 7 points for ECOG 1, down by approximately 12 points for ECOG 2–4, and down by 10 points for participants missing ECOG. This reflects increasing assumed deterioration in unobserved quality-of-life outcomes with worsening performance status.
+#### Large shifts
 
-#### Fixed shift (MNAR)
+A shift of 5–10 points was considered a small clinically important difference in EORTC, while shifts of 10–20 points were considered moderate. Accordingly, imputed EORTC scores were shifted as follows: `r describe_shifts(delta_large)`. This reflects increasing assumed deterioration in unobserved quality-of-life outcomes with worsening performance status.
+
+##### Fixed shift (MNAR)
 
 A controlled imputation approach was used in which imputed outcomes were shifted by pre‑specified ECOG‑dependent deltas. The fixed shift was applied to all imputed values, representing the expected difference under an MNAR assumption.
 
-##### Model results
-
-```{r, results="hide"}
-
-# impute on transformed scale
-
-# The paper is implementing a pattern‑mixture / reference‑based multiple imputation approach, where:
-# * You impute missing outcomes under MAR
-# * Then apply a clinically motivated shift (δ‑adjustment) based on a QoL variable (ECOG)
-# * The shift reflects poorer outcomes for worse ECOG categories
-# This is sometimes called controlled imputation.
-
-# Conceptual Mapping to mice
-# In mice, this is implemented by:
-# 1) Imputing the outcome under MAR (standard regression imputation)
-# 2) Post‑processing the imputed values using:
-#   * ECOG score
-#   * A prespecified shift (δ) per ECOG level
-
-# --- data: deaths get worst score; site cluster as integer for 2l.pan
-ignore_dead <- analysis_data$dead12 == 1 & !is.na(analysis_data$dead12)
-
-# create subset of needed variables
-to_impute_mnar <- analysis_data %>%
-  mutate(eortc_12norm = ifelse(dead12 == 1 & is.na(eortc_12norm),
-                              eortc_trans(0), eortc_12norm)) %>%
-  select(subject, eortc_12norm, arm_c, age_baseline, ecog3, race_gp, educ_gp,
-         crpc_per, sitenew, site_country, site_timetodx, site_crpc) %>%
-  mutate(sitenew = as.integer(factor(sitenew)))
-
-stopifnot(eortc_trans(0) == 10)               # worst score = ceiling on this scale
-print(levels(to_impute_mnar$ecog3))           # must be "0","1","2-4","Unknown"
-print(colSums(is.na(to_impute_mnar)))         # only eortc_12norm should have NAs
-
-# mild option: 0, -5, -10 
-# upper option: 0, -10, -20
-
-# set up mice
-ini <- mice(to_impute_mnar, maxit = 0)
-post1 <- ini$post
-
-# only impute outcome but allow predictors
-meth <- make.method(to_impute_mnar)
-meth["eortc_12norm"] <- "2l.pan"
-
-pred <- make.predictorMatrix(to_impute_mnar)
-# Allow all variables to predict eortc
-pred["eortc_12norm", ] <- 1
-pred["eortc_12norm", c("subject", "eortc_12norm")] <- 0
-pred["eortc_12norm", "sitenew"] <- -2
-
-post1["eortc_12norm"] <- "
-  delta_ecog <- c(
-    `0` = 0,
-    `1` = -7,
-    `2-4` = -12,
-    `Unknown` = -10
-  )
-
-  # CRITICAL: get row indices from imp
-  rows <- match(rownames(imp[[j]]), rownames(data))
-  lev <- as.character(data$ecog3[rows])
-  d <- as.numeric(delta_ecog[lev])
-  if (anyNA(d)) stop('ECOG level not found in delta_ecog: ', paste(unique(lev[is.na(d)]), collapse = ', '))
-
-  # imputed values
-  z <- pmin(pmax(imp[[j]][, i], 0), 10) # keep on valid sqrt scale
-
-  # transform
-  x <- 100 - z^2
-  x_shifted <- pmin(pmax(x + d, 0), 100)
-
-  imp[[j]][, i] <- sqrt(100 - x_shifted)
-"
-
-# run mice
-imp_mnar1 <- mice(
-  to_impute_mnar,
-  m = 100, 
-  maxit = 1, 
-  seed = 123, 
-  method = meth,
-  predictorMatrix = pred,
-  post = post1,
-  ignore = ignore_dead
-)
-
+```{r mi-12-fixed_large, results="hide"}
+fixed12_large <- run_mi_scenario(analysis_data, o12, mi_scenarios$fixed_large)
 ```
 
-```{r, results="hide"}
-
-# apply function to imputed data
-fit_list_mnar1 <- with(imp_mnar1, 
-                       lmerTest::lmer(eortc_12norm ~ arm_c + age_baseline + ecog3 + race_gp + 
-                                    educ_gp + crpc_per + site_country + 
-                                    site_timetodx + site_crpc + (1|sitenew), 
-                                  REML = FALSE))
-
-# # Pool without broom
-# pooled_mnar1 <- pool(fit_list_mnar1)
-# 
-# # Summarize and convert to tibble safely
-# res_mnar1 <- summary(pooled_mnar1, conf.int = TRUE)
-# 
-# res_tibble_mnar1 <- tibble::as_tibble(res_mnar1) |>
-#   dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
-# 
-# res_tibble_mnar1
-
-
-# --- reusable global p-values (works for imp_mar and imp_mnar1)
-all_terms <- c("arm_c","age_baseline","ecog3","race_gp","educ_gp",
-               "crpc_per","site_country","site_timetodx","site_crpc")
-cat_vars  <- c("ecog3","race_gp","educ_gp","site_country")   # only the ones you display
-
-
-get_global_pvals <- function(imp) {
-  imp_list <- mitml::mids2mitml.list(imp)
-  fit_models <- function(terms) {
-    f <- reformulate(c(terms, "(1|sitenew)"), response = "eortc_12norm")
-    fits <- lapply(imp_list, function(d)
-      do.call(lmerTest::lmer, list(formula = f, data = d, REML = FALSE)))
-    class(fits) <- c("mitml.result", "list")
-    fits
-  }
-  full <- fit_models(all_terms)
-  dplyr::bind_rows(lapply(cat_vars, function(v) {
-    red <- fit_models(setdiff(all_terms, v))
-    tt  <- mitml::testModels(full, red, method = "D3")
-    tibble::tibble(variable = v, row_type = "label", p.value = tt$test[, "P(>F)"])
-  }))
-}
-
-global_pvals_mnar1 <- get_global_pvals(imp_mnar1)
-
+```{r mi-12-fixed-table_large}
+tbl_mi_regression(fixed12_large)
 ```
+
+##### Variable shift (MNAR)
+
+For participants alive at 12 months with a missing EORTC score, we assumed that a proportion of non-responders had worse unobserved QoL than predicted under MAR. Within each imputed dataset, each such participant was shifted downward on the original EORTC scale by an ECOG-specific amount (`r shift_list(delta_large)`) with probability p (ECOG-specific; `r p_text(mi_scenarios$variable_large$p_shift)`); the remaining participants were imputed under MAR. 
+
+```{r mi-12-variable_large, results="hide"}
+variable12_large <- run_mi_scenario(analysis_data, o12, mi_scenarios$variable_large)
+```
+
+```{r mi-12-variable-table_large}
+tbl_mi_regression(variable12_large)
+```
+
+#### More conservative shifts
+
+A shift of 5–10 points was considered a small clinically important difference in EORTC, while shifts of 10–20 points were considered moderate. Accordingly, imputed EORTC scores were shifted as follows: `r describe_shifts(delta_small)`. This reflects increasing assumed deterioration in unobserved quality-of-life outcomes with worsening performance status.
+
+##### Fixed shift (MNAR)
+
+A controlled imputation approach was used in which imputed outcomes were shifted by pre‑specified ECOG‑dependent deltas. The fixed shift was applied to all imputed values, representing the expected difference under an MNAR assumption.
+
+```{r mi-12-fixed_small, results="hide"}
+fixed12_small <- run_mi_scenario(analysis_data, o12, mi_scenarios$fixed_small)
+```
+
+```{r mi-12-fixed-table_small}
+tbl_mi_regression(fixed12_small)
+```
+
+##### Variable shift (MNAR)
+
+For participants alive at 12 months with a missing EORTC score, we assumed that a proportion of non-responders had worse unobserved QoL than predicted under MAR. Within each imputed dataset, each such participant was shifted downward on the original EORTC scale by an ECOG-specific amount (`r shift_list(delta_small)`) with probability p (ECOG-specific; `r p_text(mi_scenarios$variable_small$p_shift)`); the remaining participants were imputed under MAR. 
+
+```{r mi-12-variable_small, results="hide"}
+variable12_small <- run_mi_scenario(analysis_data, o12, mi_scenarios$variable_small)
+```
+
+```{r mi-12-variable-table_small}
+tbl_mi_regression(variable12_small)
+```
+
+### Back-transformed estimates
+
+Estimated marginal means, back-transformed to the original EORTC scale.
 
 ```{r}
-
-# output table
-fit_list_mnar1 %>% 
-  tbl_regression(label = list(
-    arm_c     = "Treatment Arm",
-    age_baseline = "Age",
-    ecog3     = "ECOG Performance Status",
-    race_gp   = "Race",
-    educ_gp   = "Education Level",
-    crpc_per  = "Disease State",
-    site_timetodx = "Time from Diagnosis to Enrollment (Site-Level)",
-    site_crpc = "CRPC (Site-Level)",
-    site_country = "Country")) %>%
-  # add global p-value
-  modify_table_body(
-    ~ .x %>%
-      rename(original.p = p.value) %>%
-      mutate(original.p = scales::pvalue(original.p)) %>%
-      left_join(global_pvals_mnar1, by = c("variable", "row_type")) %>%
-      mutate(
-        original.p = if_else(variable %in% cat_vars, NA_character_, original.p),
-        p.value    = if_else(variable %in% cat_vars, p.value, NA_real_))) %>%
-  modify_column_unhide(columns = c(original.p, p.value)) %>%
-  modify_header(original.p ~ "**P-value**", p.value ~ "**Global p-value**") %>%
-  bold_labels() %>%
-  modify_caption("**Analysis of primary outcome with missing EORTC imputed under MNAR assumptions (ECOG-dependent downward shift; deaths scored 0)**")
-
-
-# # Pool without broom
-# pooled_mar <- pool(fit_list_mar)
-# 
-# # Summarize and convert to tibble safely
-# res_mar <- summary(pooled_mar, conf.int = TRUE)
-# 
-# res_tibble_mar <- tibble::as_tibble(res_mar) |>
-#   dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
-# 
-
+emm_table_combined(fit_cc12, list(mar12, fixed12_large, fixed12_small, variable12_large, variable12_small),
+                   method_labels = c("Complete case", 
+                                     "MAR", 
+                                     "MNAR - large fixed shift", 
+                                     "MNAR - small fixed shift", 
+                                     "MNAR - large variable shift",
+                                     "MNAR - small variable shift"))
 ```
 
-##### Back-transformed estimates
-
-```{r}
-
-# pooled marginal means 
-# Extract fitted models
-fits <- fit_list_mnar1$analyses
-
-# Compute emmeans for each imputation
-emm_list <- lapply(fits, emmeans, specs = ~ arm_c, lmer.df = "asymptotic")
-
-# Pool estimates using Rubin's rules
-Q <- lapply(emm_list, function(x) summary(x)$emmean)   # estimates
-U <- lapply(emm_list, function(x) as.matrix(vcov(x)))     # variances
-mi <- MIcombine(Q, U)
-
-# Compute pooled SEs and 95% CIs (on transformed scale)
-alpha <- 0.05
-est   <- as.numeric(mi$coefficients)
-se    <- sqrt(diag(mi$variance))
-tcrit <- qt(1 - alpha / 2, df = mi$df)
-
-# create data frame
-emm_imp <- data.frame(
-  arm_c    = summary(emm_list[[1]])$arm_c,
-  emmean   = est,
-  SE       = se,
-  lower.CL = est - tcrit * se,
-  upper.CL = est + tcrit * se
-)
-
-# convert to data frame and back-transform
-emm_df <- emm_imp |>
-  dplyr::mutate(
-    mean_orig  = inv_eortc_trans(emmean),
-    a = inv_eortc_trans(lower.CL),
-    b = inv_eortc_trans(upper.CL),
-    lower_orig = pmin(a, b),   # handles a decreasing transformation
-    upper_orig = pmax(a, b)
-    ) |>
-  dplyr::select(
-    arm_c,
-    mean_orig,
-    lower_orig,
-    upper_orig
-  ) |>
-  dplyr::mutate(across(where(is.numeric), ~ round(., 1)))
-
-# create marginal means table
-gt(emm_df) |>
-  tab_header(
-    title = "Adjusted estimate (back-transformed) by treatment arm"
-  ) |>
-  cols_label(
-    arm_c = "Treatment Arm",
-    mean_orig = "Adjusted Mean",
-    lower_orig = "Lower 95% CI",
-    upper_orig = "Upper 95% CI"
-  ) 
-
-```
-
-#### Variable shift (MNAR)
-
-For participants alive at 12 months with a missing EORTC score, we assumed that a proportion of non-responders had worse unobserved QoL than predicted under MAR. Within each imputed dataset, each such participant was shifted downward on the original EORTC scale by an ECOG-specific amount (−7 for ECOG 1, −12 for ECOG 2–4, −10 for unknown ECOG) with probability p (ECOG-specific; 0.5 in the primary scenario); the remaining participants were imputed under MAR. The implied average shifts are given in Table X.
-
-##### Model results
-
-```{r, results="hide"}
-# impute on transformed scale
-
-# The paper is implementing a pattern‑mixture / reference‑based multiple imputation approach, where:
-# * You impute missing outcomes under MAR
-# * Then apply a clinically motivated shift (δ‑adjustment) based on a QoL variable (ECOG)
-# * The shift reflects poorer outcomes for worse ECOG categories
-# This is sometimes called controlled imputation.
-
-# Conceptual Mapping to mice
-# In mice, this is implemented by:
-# 1) Imputing the outcome under MAR (standard regression imputation)
-# 2) Post‑processing the imputed values using:
-#   * ECOG score
-#   * A prespecified shift (δ) per ECOG level
-
-# --- data: deaths get worst score; site cluster as integer for 2l.pan
-ignore_dead <- analysis_data$dead12 == 1 & !is.na(analysis_data$dead12)
-
-stopifnot(eortc_trans(0) == 10)               # worst score = ceiling on this scale
-# print(levels(to_impute_mnar$ecog3))           # must be "0","1","2-4","Unknown"
-# print(colSums(is.na(to_impute_mnar)))         # only eortc_12norm should have NAs
-
-
-# set up mice
-ini <- mice(to_impute_mnar, maxit = 0)
-post2 <- ini$post
-
-# only impute outcome but allow predictors
-meth <- make.method(to_impute_mnar)
-meth["eortc_12norm"]   <- "2l.pan"
-
-pred <- make.predictorMatrix(to_impute_mnar)
-# Allow all variables to predict eortc
-pred["eortc_12norm", ] <- 1
-pred["eortc_12norm", c("subject", "eortc_12norm")] <- 0  # don't use ID
-pred["eortc_12norm", "sitenew"] <- -2 
-
-# # shift with some set probability 
-# post2["eortc_12norm"] <- "
-#   delta_ecog <- c(
-#     `0` = 0,
-#     `1` = -7,
-#     `2-4` = -12,
-#     `Unknown` = -10
-#   )
-# 
-#   p_shift <- 0.5
-# 
-#   # MNAR indicator
-#   shift_indicator <- rbinom(length(i), size = 1, prob = p_shift)
-# 
-#   # imputed values on sqrt(100 - x) scale
-#   z <- imp[[j]][, i]
-# 
-#   # back-transform to original scale
-#   x <- 100 - z^2
-# 
-#   # ECOG-specific delta (original scale)
-#   d <- delta_ecog[as.character(data$ecog3[i])]
-# 
-#   # compute equivalent shift on sqrt scale
-#   delta_z <- sqrt(100 - (x + d)) - sqrt(100 - x)
-# 
-#   # apply probabilistic shift
-#   imp[[j]][, i] <- z + shift_indicator * delta_z
-# "
-
-# # add random noise around the delta
-# post2["eortc_12norm"] <- "
-#   delta_ecog <- c(
-#     `0` = 0,
-#     `1` = -7,
-#     `2-4` = -12,
-#     `Unknown` = -10
-#   )
-# 
-#   sd_ecog <- c(
-#     `0` = 2,
-#     `1` = 3,
-#     `2-4` = 4,
-#     `Unknown` = 3
-#   )
-# 
-#   # imputed values (sqrt scale)
-#   z <- imp[[j]][, i]
-# 
-#   # CRITICAL: use rownames for alignment
-#   rows <- as.integer(rownames(imp[[j]]))
-# 
-#   ecog_vals <- as.character(data$ecog3[rows])
-# 
-#   # deterministic shift
-#   d_mean <- delta_ecog[ecog_vals]
-# 
-#   # stochastic noise (aligned!)
-#   d_noise <- rnorm(length(d_mean), mean = 0, sd = sd_ecog[ecog_vals])
-# 
-#   d_total <- d_mean + d_noise
-# 
-#   # safety: no NA shifts
-#   d_total[is.na(d_total)] <- 0
-# 
-#   # back-transform
-#   x <- 100 - z^2
-# 
-#   # apply shift with bounds
-#   x_shifted <- pmin(pmax(x + d_total, 0), 100)
-# 
-#   # ensure valid sqrt input
-#   val <- 100 - x_shifted
-#   val[val < 0] <- 0
-# 
-#   imp[[j]][, i] <- sqrt(val)
-# "
-
-# probabilistic shift - shift people 50% of the time
-post2["eortc_12norm"] <- "
-  delta  <- c(`0` = 0, `1` = -7,  `2-4` = -12, `Unknown` = -10)  # shift if MNAR (raw points)
-  p_mnar <- c(`0` = 0, `1` = 0.5, `2-4` = 0.5, `Unknown` = 0.5)  # probability of being shifted
-
-  rows <- match(rownames(imp[[j]]), rownames(data))
-  lev  <- as.character(data$ecog3[rows])
-  if (anyNA(rows) || any(!lev %in% names(delta)))
-    stop('Unmatched row or ECOG level in post function')
-
-  # each missing participant is MNAR (shifted) with probability p, else left as MAR
-  shifted <- rbinom(length(lev), size = 1, prob = unname(p_mnar[lev]))
-  d <- unname(delta[lev]) * shifted
-
-  z <- pmin(pmax(imp[[j]][, i], 0), 10)
-  x <- 100 - z^2
-  x_shifted <- pmin(pmax(x + d, 0), 100)
-  imp[[j]][, i] <- sqrt(100 - x_shifted)
-"
-
-# run mice
-imp_mnar2 <- mice(
-  to_impute_mnar,
-  m = 100, 
-  maxit = 1, 
-  seed = 123, 
-  predictorMatrix = pred,
-  post = post2,
-  method = meth,
-  ignore = ignore_dead
-)
-```
-
-```{r, results="hide"}
-
-# apply function to imputed data
-fit_list_mnar2 <- with(imp_mnar2, 
-                       lme4::lmer(eortc_12norm ~ arm_c + age_baseline + ecog3 + race_gp + 
-                                    educ_gp + crpc_per + site_country + 
-                                    site_timetodx + site_crpc + (1|sitenew), 
-                                  REML = FALSE))
-
-# # Pool without broom
-# pooled_mnar2 <- pool(fit_list_mnar2)
-# 
-# # Summarize and convert to tibble safely
-# res_mnar2 <- summary(pooled_mnar2, conf.int = TRUE)
-# 
-# res_tibble_mnar2 <- tibble::as_tibble(res_mnar2) |>
-#   dplyr::mutate(across(where(is.numeric), ~ round(., 3)))
-# 
-# res_tibble_mnar2
-
-# --- reusable global p-values 
-# all_terms <- c("arm_c","age_baseline","ecog3","race_gp","educ_gp",
-#                "crpc_per","site_country","site_timetodx","site_crpc")
-# cat_vars  <- c("ecog3","race_gp","educ_gp","site_country")   # only the ones you display
-# 
-# get_global_pvals <- function(imp) {
-#   imp_list <- mitml::mids2mitml.list(imp)
-#   fit_models <- function(terms) {
-#     f <- reformulate(c(terms, "(1|sitenew)"), response = "eortc_12norm")
-#     fits <- lapply(imp_list, function(d)
-#       do.call(lmerTest::lmer, list(formula = f, data = d, REML = FALSE)))
-#     class(fits) <- c("mitml.result", "list")
-#     fits
-#   }
-#   full <- fit_models(all_terms)
-#   dplyr::bind_rows(lapply(cat_vars, function(v) {
-#     red <- fit_models(setdiff(all_terms, v))
-#     tt  <- mitml::testModels(full, red, method = "D3")
-#     tibble::tibble(variable = v, row_type = "label", p.value = tt$test[, "P(>F)"])
-#   }))
-# }
-
-global_pvals_mnar2 <- get_global_pvals(imp_mnar2)
-
-```
-
-```{r}
-# output table
-fit_list_mnar2 %>% 
-  tbl_regression(label = list(
-    arm_c     = "Treatment Arm",
-    age_baseline = "Age",
-    ecog3     = "ECOG Performance Status",
-    race_gp   = "Race",
-    educ_gp   = "Education Level",
-    crpc_per  = "Disease State",
-    site_timetodx = "Time from Diagnosis to Enrollment (Site-Level)",
-    site_crpc = "CRPC (Site-Level)",
-    site_country = "Country")) %>%
-  # add global p-value
-  modify_table_body(
-    ~ .x %>%
-      rename(original.p = p.value) %>%
-      mutate(original.p = scales::pvalue(original.p)) %>%
-      left_join(global_pvals_mnar2, by = c("variable", "row_type")) %>%
-      mutate(
-        original.p = if_else(variable %in% cat_vars, NA_character_, original.p),
-        p.value    = if_else(variable %in% cat_vars, p.value, NA_real_)
-      )) %>%
-  modify_column_unhide(columns = c(original.p, p.value)) %>%
-  modify_header(original.p ~ "**P-value**", p.value ~ "**Global p-value**") %>%
-  bold_labels() %>%
-  modify_caption("**Analysis of primary outcome with missing EORTC imputed under MNAR assumptions (ECOG-dependent downward shift with noise; deaths scored 0)**")
-# 
-```
-
-##### Back-transformed estimates
-
-```{r}
-
-# pooled marginal means 
-# Extract fitted models
-fits <- fit_list_mnar2$analyses
-
-# Compute emmeans for each imputation
-emm_list <- lapply(fits, emmeans, specs = ~ arm_c, lmer.df = "asymptotic")
-
-# Pool estimates using Rubin's rules
-Q <- lapply(emm_list, function(x) summary(x)$emmean)   # estimates
-U <- lapply(emm_list, function(x) as.matrix(vcov(x)))     # variances
-mi <- MIcombine(Q, U)
-
-# Compute pooled SEs and 95% CIs (on transformed scale)
-alpha <- 0.05
-est   <- as.numeric(mi$coefficients)
-se    <- sqrt(diag(mi$variance))
-tcrit <- qt(1 - alpha / 2, df = mi$df)
-
-# create data frame
-emm_imp <- data.frame(
-  arm_c    = summary(emm_list[[1]])$arm_c,
-  emmean   = est,
-  SE       = se,
-  lower.CL = est - tcrit * se,
-  upper.CL = est + tcrit * se
-)
-
-# convert to data frame and back-transform
-emm_df <- emm_imp |>
-  dplyr::mutate(
-    mean_orig  = inv_eortc_trans(emmean),
-    a = inv_eortc_trans(lower.CL),
-    b = inv_eortc_trans(upper.CL),
-    lower_orig = pmin(a, b),   # handles a decreasing transformation
-    upper_orig = pmax(a, b)
-    ) |>
-  dplyr::select(
-    arm_c,
-    mean_orig,
-    lower_orig,
-    upper_orig
-  ) |>
-  dplyr::mutate(across(where(is.numeric), ~ round(., 1)))
-
-# create marginal means table
-gt(emm_df) |>
-  tab_header(
-    title = "Adjusted estimate (back-transformed) by treatment arm"
-  ) |>
-  cols_label(
-    arm_c = "Treatment Arm",
-    mean_orig = "Adjusted Mean",
-    lower_orig = "Lower 95% CI",
-    upper_orig = "Upper 95% CI"
-  ) 
-
-
-```
 
 ### Compare distributions of EORTC
 
 These plots show the distributions of outcomes for the various models, including the complete cases and the data generated for each imputation method. Note that the values are on the transformed scale, so upward shifts in the distribution on the transformed scale correspond to lower values of EORTC on the native scale.
 
-```{r, echo=FALSE}
-# complete cases
-complete_cases <- analysis_data %>%
-  dplyr::filter(!is.na(eortc_12norm)) %>%
-  dplyr::mutate(source = "Complete case")
-
-# extract MAR-imputed values - 60 missing EORTC-6 * 100 imputations
-long_mar <- complete(imp_mar, action = "long") %>%
-  dplyr::mutate(source = "MAR imputation") %>%
-  dplyr::mutate(
-    was_missing = is.na(to_impute_mar$eortc_12norm[match(subject, to_impute_mar$subject)])
-  ) %>%
-  dplyr::filter(was_missing)
-
-# extract MNAR-imputed values
-long_mnar1 <- complete(imp_mnar1, action = "long") %>%
-  dplyr::mutate(source = "MNAR imputation - fixed") %>%
-  dplyr::mutate(
-    was_missing = is.na(to_impute_mnar$eortc_12norm[match(subject, to_impute_mnar$subject)])
-  ) %>%
-  dplyr::filter(was_missing)
-
-# extract MNAR-imputed values
-long_mnar2 <- complete(imp_mnar2, action = "long") %>%
-  dplyr::mutate(source = "MNAR imputation - variable") %>%
-  dplyr::mutate(
-    was_missing = is.na(to_impute_mnar$eortc_12norm[match(subject, to_impute_mnar$subject)])
-  ) %>%
-  dplyr::filter(was_missing)
-
-
-# combine all sources
-eortc_all <- dplyr::bind_rows(
-  complete_cases %>% dplyr::select(subject, ecog3, eortc_12norm, source),
-  long_mar      %>% dplyr::select(subject, ecog3, eortc_12norm, source),
-  long_mnar1    %>% dplyr::select(subject, ecog3, eortc_12norm, source),
-  long_mnar2    %>% dplyr::select(subject, ecog3, eortc_12norm, source)
-)
-
-# density plot
-ggplot(eortc_all, aes(x = eortc_12norm, fill = source)) +
-  geom_density(alpha = 0.4) +
-  labs(
-    title = "Distribution of EORTC scores",
-    subtitle = "Complete cases vs MAR and ECOG-adjusted imputations",
-    x = "EORTC score",
-    y = "Density"
-  ) +
-  theme_bw() +
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14))
-
-# stratify by ECOG
-ggplot(eortc_all, aes(x = eortc_12norm, fill = source)) +
-  geom_density(alpha = 0.4) +
-  facet_wrap(~ ecog3) +
-  labs(
-    title = "EORTC distributions by ECOG score",
-    subtitle = "Observed vs MAR vs MNAR imputations",
-    x = "EORTC score (transformed scale)",
-    y = "Density"
-  ) +
-  theme_bw() +
-  theme(plot.title = element_text(size=18, hjust = 0.5, face = "bold"),
-        plot.subtitle = element_text(size=16, hjust = 0.5, face = "bold"),
-        axis.title.x = element_text(vjust=0.5,face="bold", size=16),
-        axis.text.x = element_text(size=14),
-        axis.title.y = element_text(angle=90, vjust=0.70, face="bold", size=18),
-        axis.text.y = element_text(size=14))
-
-
+```{r compare-12, echo=FALSE}
+cmp12 <- compare_eortc_distributions(analysis_data, o12$norm, list(mar12, fixed12_large, variable12_large))
+cmp12$overall
+cmp12$by_ecog
 ```
-
 
 # Overall survival
 Participants were censored at the date of their last IRONMAN visit
-```{r, fig.width = 8, fig.height = 7, echo=FALSE}
+```{r survival, fig.width = 8, fig.height = 7, echo=FALSE}
 survfit2(Surv(limbo, dead=="Yes") ~ arm_c, data = analysis_data) %>% 
   ggsurvfit(linewidth=2) +
   add_censor_mark(size = 2) +
@@ -2660,7 +1325,7 @@ survfit2(Surv(limbo, dead=="Yes") ~ arm_c, data = analysis_data) %>%
   # update figure labels/titles
   labs(
     y = "Overall Survival",
-    x = "Months from EMRPO enrollment",
+    x = "Months from EMPRO enrollment",
     title = NULL
   ) +
   theme_bw() +
@@ -2673,12 +1338,11 @@ survfit2(Surv(limbo, dead=="Yes") ~ arm_c, data = analysis_data) %>%
     legend.title = element_text(size = 14),
     legend.position = "bottom"
   )
-
 ```
 
 # Secondary outcomes
 
-```{r, echo=FALSE}
+```{r secondary-outcomes, echo=FALSE}
 analysis_data %>% 
   mutate(censored = ifelse(limbo<12 & dead12==0, 1, 0)) %>% 
   set_variable_labels(censored = "Censored within 12 mo") %>% 
@@ -2692,5 +1356,4 @@ analysis_data %>%
                                                "{min}, {max}")) %>%
   bold_labels()  %>% 
   modify_caption("**Counts of secondary outcomes**")
-
 ```
