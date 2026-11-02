@@ -45,8 +45,8 @@ Primary contacts:
 | `050_empro_report_for_meeting.Rmd | Creates .DOCX report of results to be printed for June 2026 ASCO meeting (not updated) |
 
 Data output:
-data/EMPRO_data__date_.RData
-* used as input for /scripts 020 through 050
+`data/EMPRO_data_DATE.RData`
+* created by `010_read_empro_data.R` and used for all remaining scripts
 ---
 
 ## Reports
@@ -87,17 +87,6 @@ Data inputs(s):
 | `randscheme_final.csv` | output from 020_radnomization; includes the final randomization scheme with site-level characteristics |
 | `empro_constrained.csv` | output from 020_radnomization; Constrained randomization space from initial randomization to be used in the permutation test|
 
-
-## Analysis Workflow
-
-1. Obtain source data.
-2. Run data import scripts.
-3. Run data cleaning scripts.
-4. Generate derived datasets.
-5. Run analysis scripts.
-6. Create tables and figures.
-7. Render reports.
-
 ---
 
 ## Reproducibility Notes
@@ -106,11 +95,7 @@ Data inputs(s):
 - Raw data should not be modified directly.
 - Derived datasets should be generated through scripts.
 
----
 
-## Change Log
-
-### YYYY-MM-DD
 
 - Description of major update.
 
