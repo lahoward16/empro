@@ -4,9 +4,9 @@ This repository contains all code related to the IRONMAN-EMPRO clinical trial. I
 
 ## Overview
 
-Study: EMPRO, an IRONMAN sub-study
+**Study:** EMPRO, an IRONMAN sub-study
 
-Primary contacts:
+**Primary contacts:**
 
 - Lauren Howard
 - Terry Hyslop
@@ -72,7 +72,7 @@ This folder contains subfolders:
 
 ### data/
 
-Data inputs(s):
+**Data inputs(s):**
 
 | File | Description |
 |------|-------------|
