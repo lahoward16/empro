@@ -46,7 +46,14 @@ Primary contacts:
 
 Data output:
 `data/EMPRO_data_DATE.RData`
-* created by `010_read_empro_data.R` and used for all remaining scripts
+- created by `010_read_empro_data.R` and used for all remaining scripts
+- includes:
+  - `empro_data`
+    - Description: Patient_level data; one record per patient
+  - `triggers_long`
+    - Description: Trigger-level data; one record per trigger, multiple records per patient
+  - not_matched, noconsent, lateenroll, screenfail
+    - Description: Patient lists used to create the consort diagram  
 ---
 
 ## Reports
