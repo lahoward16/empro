@@ -52,7 +52,7 @@ Data output:
     - Description: Patient_level data; one record per patient
   - `triggers_long`
     - Description: Trigger-level data; one record per trigger, multiple records per patient
-  - not_matched, noconsent, lateenroll, screenfail
+  - `not_matched`, `noconsent`, `lateenroll`, `screenfail`
     - Description: Patient lists used to create the consort diagram  
 ---
 
